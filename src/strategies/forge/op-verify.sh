@@ -95,18 +95,19 @@ get_transaction_field() {
 make_message_hash() {
   local transaction_file="$1"
 
-  local safe=$(get_transaction_field "$transaction_file" "safe")
-  local chain=$(get_transaction_field "$transaction_file" "chain")
-  local to=$(get_transaction_field "$transaction_file" "to")
-  local value=$(get_transaction_field "$transaction_file" "value")
-  local data=$(get_transaction_field "$transaction_file" "data")
-  local operation=$(get_transaction_field "$transaction_file" "operation")
-  local safe_tx_gas=$(get_transaction_field "$transaction_file" "safe_tx_gas")
-  local base_gas=$(get_transaction_field "$transaction_file" "base_gas")
-  local gas_price=$(get_transaction_field "$transaction_file" "gas_price")
-  local gas_token=$(get_transaction_field "$transaction_file" "gas_token")
-  local refund_receiver=$(get_transaction_field "$transaction_file" "refund_receiver")
-  local nonce=$(get_transaction_field "$transaction_file" "nonce")
+  # Use jq with -e flag to fail if any field is missing
+  local safe=$(jq -er '.safe' "$transaction_file")
+  local chain=$(jq -er '.chain' "$transaction_file")
+  local to=$(jq -er '.to' "$transaction_file")
+  local value=$(jq -er '.value' "$transaction_file")
+  local data=$(jq -er '.data' "$transaction_file")
+  local operation=$(jq -er '.operation' "$transaction_file")
+  local safe_tx_gas=$(jq -er '.safe_tx_gas' "$transaction_file")
+  local base_gas=$(jq -er '.base_gas' "$transaction_file")
+  local gas_price=$(jq -er '.gas_price' "$transaction_file")
+  local gas_token=$(jq -er '.gas_token' "$transaction_file")
+  local refund_receiver=$(jq -er '.refund_receiver' "$transaction_file")
+  local nonce=$(jq -er '.nonce' "$transaction_file")
 
   local message_hash_input
   message_hash_input=$(
@@ -134,9 +135,9 @@ make_message_hash() {
 make_domain_hash() {
   local transaction_file="$1"
 
-  local safe chain
-  safe=$(get_transaction_field "$transaction_file" "safe")
-  chain=$(get_transaction_field "$transaction_file" "chain")
+  # Use jq with -e flag to fail if any field is missing
+  local safe=$(jq -er '.safe' "$transaction_file")
+  local chain=$(jq -er '.chain' "$transaction_file")
 
   local domain_hash_input
   domain_hash_input=$(
@@ -159,9 +160,9 @@ parse_token_amount() {
 
   if [[ -n "$decimals" ]]; then
     # Using bc for float arithmetic
-    echo "$(bc <<< "scale=6; $amount_in_wei / 10^$decimals")"
+    echo "$(bc <<< "scale=6; $amount_in_wei / 10^$decimals") (DECIMALS HAVE BEEN PARSED)"
   else
-    echo "$amount_in_wei (UNKNOWN DECIMALS)"
+    echo "$amount_in_wei (DECIMALS COULD NOT BE PARSED)"
   fi
 }
 
@@ -217,12 +218,11 @@ parse_function_data() {
     "$(cast sig $TRANSFER_SIG)")
       function_name="$TRANSFER_SIG"
       local decoded
-      decoded="$(cast decode-calldata "$TRANSFER_SIG" "$function_data")" || true
-      # Usually "decoded" has 2 lines: recipient, amount
-      local recipient="$(echo "$decoded" | sed -n '1p')"
-      local raw_amount="$(echo "$decoded" | sed -n '2p')"
-      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
-      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
+      decoded="$(cast --json decode-calldata "$TRANSFER_SIG" "$function_data")" || true
+      
+      local recipient="$(echo "$decoded" | jq -r '.[0]')"
+      local raw_amount="$(echo "$decoded" | jq -r '.[1]')"
+      local amount_decimals="$(parse_token_amount "$raw_amount" "$decimals")"
 
       extra_json="$(
         jq -n \
@@ -237,13 +237,12 @@ parse_function_data() {
     "$(cast sig $TRANSFER_FROM_SIG)")
       function_name="$TRANSFER_FROM_SIG"
       local decoded
-      decoded="$(cast decode-calldata "$TRANSFER_FROM_SIG" "$function_data")" || true
-      # Usually "decoded" has 3 lines: from, to, amount
-      local from_addr="$(echo "$decoded" | sed -n '1p')"
-      local to_addr="$(echo "$decoded" | sed -n '2p')"
-      local raw_amount="$(echo "$decoded" | sed -n '3p')"
-      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
-      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
+      decoded="$(cast --json decode-calldata "$TRANSFER_FROM_SIG" "$function_data")" || true
+      
+      local from_addr="$(echo "$decoded" | jq -r '.[0]')"
+      local to_addr="$(echo "$decoded" | jq -r '.[1]')"
+      local raw_amount="$(echo "$decoded" | jq -r '.[2]')"
+      local amount_decimals="$(parse_token_amount "$raw_amount" "$decimals")"
 
       extra_json="$(
         jq -n \
@@ -260,12 +259,11 @@ parse_function_data() {
     "$(cast sig $APPROVE_SIG)")
       function_name="$APPROVE_SIG"
       local decoded
-      decoded="$(cast decode-calldata "$APPROVE_SIG" "$function_data")" || true
-      # Usually: spender, amount
-      local spender="$(echo "$decoded" | sed -n '1p')"
-      local raw_amount="$(echo "$decoded" | sed -n '2p')"
-      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
-      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
+      decoded="$(cast --json decode-calldata "$APPROVE_SIG" "$function_data")" || true
+      
+      local spender="$(echo "$decoded" | jq -r '.[0]')"
+      local raw_amount="$(echo "$decoded" | jq -r '.[1]')"
+      local amount_decimals="$(parse_token_amount "$raw_amount" "$decimals")"
 
       extra_json="$(
         jq -n \
@@ -280,12 +278,11 @@ parse_function_data() {
     "$(cast sig $INCREASE_ALLOWANCE_SIG)")
       function_name="$INCREASE_ALLOWANCE_SIG"
       local decoded
-      decoded="$(cast decode-calldata "$INCREASE_ALLOWANCE_SIG" "$function_data")" || true
-      # Usually: spender, addedValue
-      local spender="$(echo "$decoded" | sed -n '1p')"
-      local raw_amount="$(echo "$decoded" | sed -n '2p')"
-      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
-      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
+      decoded="$(cast --json decode-calldata "$INCREASE_ALLOWANCE_SIG" "$function_data")" || true
+      
+      local spender="$(echo "$decoded" | jq -r '.[0]')"
+      local raw_amount="$(echo "$decoded" | jq -r '.[1]')"
+      local amount_decimals="$(parse_token_amount "$raw_amount" "$decimals")"
 
       extra_json="$(
         jq -n \
@@ -300,12 +297,11 @@ parse_function_data() {
     "$(cast sig $DECREASE_ALLOWANCE_SIG)")
       function_name="$DECREASE_ALLOWANCE_SIG"
       local decoded
-      decoded="$(cast decode-calldata "$DECREASE_ALLOWANCE_SIG" "$function_data")" || true
-      # Usually: spender, subtractedValue
-      local spender="$(echo "$decoded" | sed -n '1p')"
-      local raw_amount="$(echo "$decoded" | sed -n '2p')"
-      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
-      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
+      decoded="$(cast --json decode-calldata "$DECREASE_ALLOWANCE_SIG" "$function_data")" || true
+      
+      local spender="$(echo "$decoded" | jq -r '.[0]')"
+      local raw_amount="$(echo "$decoded" | jq -r '.[1]')"
+      local amount_decimals="$(parse_token_amount "$raw_amount" "$decimals")"
 
       extra_json="$(
         jq -n \
@@ -320,9 +316,9 @@ parse_function_data() {
     "$(cast sig $APPROVE_HASH_SIG)")
       function_name="$APPROVE_HASH_SIG"
       local decoded
-      decoded="$(cast decode-calldata "$APPROVE_HASH_SIG" "$function_data")" || true
-      # Usually: single line with the hash
-      local hash_val="$(echo "$decoded" | sed -n '1p')"
+      decoded="$(cast --json decode-calldata "$APPROVE_HASH_SIG" "$function_data")" || true
+      
+      local hash_val="$(echo "$decoded" | jq -r '.[0]')"
 
       extra_json="$(
         jq -n \
@@ -434,14 +430,14 @@ parse_function_data() {
 create_transaction_json() {
   local transaction_file="$1"
 
-  local safe chain to value data operation nonce
-  safe="$(get_transaction_field "$transaction_file" "safe")"
-  chain="$(get_transaction_field "$transaction_file" "chain")"
-  to="$(get_transaction_field "$transaction_file" "to")"
-  value="$(get_transaction_field "$transaction_file" "value")"
-  data="$(get_transaction_field "$transaction_file" "data")"
-  operation="$(get_transaction_field "$transaction_file" "operation")"
-  nonce="$(get_transaction_field "$transaction_file" "nonce")"
+  # Use jq with -e flag to fail if any field is missing
+  local safe=$(jq -er '.safe' "$transaction_file")
+  local chain=$(jq -er '.chain' "$transaction_file")
+  local to=$(jq -er '.to' "$transaction_file")
+  local value=$(jq -er '.value' "$transaction_file")
+  local data=$(jq -er '.data' "$transaction_file")
+  local operation=$(jq -er '.operation' "$transaction_file")
+  local nonce=$(jq -er '.nonce' "$transaction_file")
 
   # Operation ID to string
   local operation_name="Unsupported"
