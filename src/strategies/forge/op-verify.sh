@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
 #
-# Simplified Safe transaction validation script. Generally inspired by:
-# https://github.com/pcaversaccio/safe-tx-hashes-util
+# Safe transaction validation script, returning JSON instead of printing details.
+# Use this script by calling it with --tx <transaction.json>, so that it outputs
+# fully detailed JSON describing the transaction. For example:
 #
-# Differences from the original approach:
-#   - Only uses the cast binary (no other Foundry tools).
-#   - Always takes a transaction file as input (no Safe API).
-#   - No support for older Safe transaction formats.
+#   ./op-verify.sh --tx path/to/tx.json
 #
-# Usage:
-#   ./op-verify.sh --tx <path-to-tx-file.json>
+# This output can then be piped into a separate script or command for further
+# display or verification.
 #
 
 set -Eeuo pipefail
 IFS=$'\n\t'
 
 ###############################################################################
-# GLOBALS
+# GLOBAL CONSTANTS & TEXT (not used for printing but for internal logic)
 ###############################################################################
-
-# Safe-specific hashes and signatures
 readonly DOMAIN_SEPARATOR_TYPEHASH="0x47e79534a245952e8b16893a336b85a3d9ea9fa8c573f3d803afb92a79469218"
 readonly SAFE_TX_TYPEHASH="0xbb8310d486368db6bd6f849402fdd73ad53d316b5a4b2644ad6efe0f941286d8"
 readonly DOMAIN_SEPARATOR_SIG="fn(bytes32,uint256,address)"
@@ -34,56 +30,27 @@ readonly DECREASE_ALLOWANCE_SIG="decreaseAllowance(address,uint256)"
 readonly APPROVE_HASH_SIG="approveHash(bytes32)"
 readonly AGGREGATE3_SIG="aggregate3((address,bool,bytes)[])"
 
-# Known addresses
+# Known addresses & decimals
 readonly MULTICALL3_ADDRESS="0xcA11bde05977b3631167028862bE2a173976CA11"
 readonly USDC_MAINNET_ADDRESS="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 readonly OP_TOKEN_ADDRESS="0x4200000000000000000000000000000000000042"
-
-# Text formatting
-BOLD="\e[1m"
-DIM="\e[2m"
-RESET="\e[0m"
-BLUE="\e[34m"
-CYAN="\e[36m"
-GREEN="\e[32m"
-MAGENTA="\e[35m"
-YELLOW="\e[33m"
 
 ###############################################################################
 # FUNCTIONS
 ###############################################################################
 
 #------------------------------------------------------------------------------
-# Prints a heading with a thick dividing line.
-# Globals:
-#   BOLD, CYAN, RESET
-# Arguments:
-#   $1 - The heading text.
-#------------------------------------------------------------------------------
-print_heading() {
-  local heading="$1"
-  echo -e "${BOLD}${CYAN}${heading}${RESET}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-}
-
-#------------------------------------------------------------------------------
-# Prints a lighter divider line.
-#------------------------------------------------------------------------------
-print_divider() {
-  echo -e "${DIM}${MAGENTA}──────────────────━━━━━━━───────────────────────────────────────────────────────${RESET}"
-}
-
-#------------------------------------------------------------------------------
-# Prints usage instructions.
+# Print usage instructions.
 #------------------------------------------------------------------------------
 usage() {
   cat <<EOF
 Usage: $0 --tx <path-to-transaction-file.json>
 
-Validates a Safe transaction JSON file and shows relevant data/hashes.
+Validates a Safe transaction JSON file and outputs JSON describing the transaction.
 
 Options:
   --tx <file>   Path to the Safe transaction JSON file.
+  -h, --help    Show this help.
 
 Examples:
   $0 --tx my-transaction.json
@@ -92,17 +59,10 @@ EOF
 }
 
 #------------------------------------------------------------------------------
-# Checks that a transaction file exists.
-# Globals:
-#   None
-# Arguments:
-#   $1 - The transaction file path to check.
-# Exits:
-#   1 - If the file does not exist.
+# Checks that a transaction file exists; exits with error if not.
 #------------------------------------------------------------------------------
 check_transaction_file() {
   local transaction_file="$1"
-
   if [[ ! -f "$transaction_file" ]]; then
     echo "Error: Transaction file '$transaction_file' not found." >&2
     exit 1
@@ -110,28 +70,15 @@ check_transaction_file() {
 }
 
 #------------------------------------------------------------------------------
-# Gets a field from a transaction JSON file by simple grep & sed.
-# Globals:
-#   None
-# Arguments:
-#   $1 - The transaction file path.
-#   $2 - The JSON field key to retrieve.
-# Returns:
-#   The trimmed value of the requested field, or exits if not found.
+# Extracts a specified JSON field from the transaction file using jq.
+# Returns the value or exits if not found.
 #------------------------------------------------------------------------------
 get_transaction_field() {
   local transaction_file="$1"
   local field="$2"
 
-  check_transaction_file "$transaction_file"
-
   local value
-  value=$(
-    grep -o "\"$field\"[[:space:]]*:[[:space:]]*[^,}]*" "$transaction_file" \
-      | sed -E "s/\"$field\"[[:space:]]*:[[:space:]]*//" \
-      | sed -E 's/^"(.*)"$/\1/' \
-      | sed -E 's/^[[:space:]]*|[[:space:]]*$//'
-  )
+  value=$(jq -r ".$field // empty" "$transaction_file")
 
   if [[ -z "$value" ]]; then
     echo "Error: Field '$field' not found in transaction file '$transaction_file'." >&2
@@ -142,34 +89,24 @@ get_transaction_field() {
 }
 
 #------------------------------------------------------------------------------
-# Generates the message hash for a Safe transaction.
-# Globals:
-#   SAFE_TX_TYPEHASH, SAFE_TX_SIG
-# Arguments:
-#   $1 - The path to the transaction file.
-# Returns:
-#   The computed keccak256 message hash as a hex string.
+# Generates the message hash for a Safe transaction (keccak over typed data).
+# Returns the keccak256 as a hex string.
 #------------------------------------------------------------------------------
 make_message_hash() {
   local transaction_file="$1"
 
-  check_transaction_file "$transaction_file"
-
-  local safe chain to value data operation
-  local safe_tx_gas base_gas gas_price gas_token refund_receiver nonce
-
-  safe=$(get_transaction_field "$transaction_file" "safe")
-  chain=$(get_transaction_field "$transaction_file" "chain")
-  to=$(get_transaction_field "$transaction_file" "to")
-  value=$(get_transaction_field "$transaction_file" "value")
-  data=$(get_transaction_field "$transaction_file" "data")
-  operation=$(get_transaction_field "$transaction_file" "operation")
-  safe_tx_gas=$(get_transaction_field "$transaction_file" "safe_tx_gas")
-  base_gas=$(get_transaction_field "$transaction_file" "base_gas")
-  gas_price=$(get_transaction_field "$transaction_file" "gas_price")
-  gas_token=$(get_transaction_field "$transaction_file" "gas_token")
-  refund_receiver=$(get_transaction_field "$transaction_file" "refund_receiver")
-  nonce=$(get_transaction_field "$transaction_file" "nonce")
+  local safe=$(get_transaction_field "$transaction_file" "safe")
+  local chain=$(get_transaction_field "$transaction_file" "chain")
+  local to=$(get_transaction_field "$transaction_file" "to")
+  local value=$(get_transaction_field "$transaction_file" "value")
+  local data=$(get_transaction_field "$transaction_file" "data")
+  local operation=$(get_transaction_field "$transaction_file" "operation")
+  local safe_tx_gas=$(get_transaction_field "$transaction_file" "safe_tx_gas")
+  local base_gas=$(get_transaction_field "$transaction_file" "base_gas")
+  local gas_price=$(get_transaction_field "$transaction_file" "gas_price")
+  local gas_token=$(get_transaction_field "$transaction_file" "gas_token")
+  local refund_receiver=$(get_transaction_field "$transaction_file" "refund_receiver")
+  local nonce=$(get_transaction_field "$transaction_file" "nonce")
 
   local message_hash_input
   message_hash_input=$(
@@ -187,25 +124,15 @@ make_message_hash() {
       "$nonce"
   )
 
-  local message_hash
-  message_hash=$(cast keccak "$message_hash_input")
-
-  echo "$message_hash"
+  cast keccak "$message_hash_input"
 }
 
 #------------------------------------------------------------------------------
-# Generates the domain hash for a Safe transaction.
-# Globals:
-#   DOMAIN_SEPARATOR_TYPEHASH, DOMAIN_SEPARATOR_SIG
-# Arguments:
-#   $1 - The path to the transaction file.
-# Returns:
-#   The computed keccak256 domain hash as a hex string.
+# Generates the domain hash for a Safe transaction (keccak over typed data).
+# Returns the keccak256 as a hex string.
 #------------------------------------------------------------------------------
 make_domain_hash() {
   local transaction_file="$1"
-
-  check_transaction_file "$transaction_file"
 
   local safe chain
   safe=$(get_transaction_field "$transaction_file" "safe")
@@ -219,318 +146,340 @@ make_domain_hash() {
       "$safe"
   )
 
-  local domain_hash
-  domain_hash=$(cast keccak "$domain_hash_input")
-
-  echo "$domain_hash"
+  cast keccak "$domain_hash_input"
 }
 
 #------------------------------------------------------------------------------
-# Parses a token amount given a known or unknown number of decimals.
-# Globals:
-#   None
-# Arguments:
-#   $1 - The amount (integer).
-#   $2 - The decimals (integer), or an empty string if unknown.
-# Returns:
-#   A human-readable decimal representation.
+# Converts a raw token amount into a decimal string using the known decimals,
+# or returns it plainly if decimals are unknown.
 #------------------------------------------------------------------------------
 parse_token_amount() {
-  local amount="$1"
+  local amount_in_wei="$1"
   local decimals="$2"
 
   if [[ -n "$decimals" ]]; then
-    # Using bc for handling decimal arithmetic
-    amount=$(echo "scale=6; $amount / 10^$decimals" | bc)
+    # Using bc for float arithmetic
+    echo "$(bc <<< "scale=6; $amount_in_wei / 10^$decimals")"
   else
-    amount="$amount (UNKNOWN DECIMALS)"
+    echo "$amount_in_wei (UNKNOWN DECIMALS)"
   fi
-
-  echo "$amount"
 }
 
 #------------------------------------------------------------------------------
-# Parses function data (coupled with known function selectors) to show user-
-# friendly details about the transaction.
-# Globals:
-#   USDC_MAINNET_ADDRESS, OP_TOKEN_ADDRESS, MULTICALL3_ADDRESS, BOLD, RESET, 
-#   GREEN, YELLOW, SAFE_TX_SIG, AGGREGATE3_SIG; known function name constants.
-# Arguments:
-#   $1 - Target contract address.
-#   $2 - Calldata (hex string).
-#   $3 - (Optional) Transaction index label.
-#   $4 - (Optional) Whether this call is nested in a Multicall.
+# Attempt to decode the given calldata based on known function selectors.
+# Returns JSON describing the function name, addresses, amounts, etc.
+#
+# If the function is a Multicall3 aggregate call, we recursively parse and
+# return an array of subcalls in JSON.
 #------------------------------------------------------------------------------
 parse_function_data() {
   local target_address="$1"
   local function_data="$2"
-  local tx_number="${3:-1}"
-  local is_nested="${4:-false}"
-
-  local target_address_name=""
-  local target_address_network=""
-  local target_decimals=""
-
-  # Identify known token addresses
-  if [[ "$target_address" == "$USDC_MAINNET_ADDRESS" ]]; then
-    target_address_name="USDC"
-    target_address_network="MAINNET ONLY"
-    target_decimals="6"
-  elif [[ "$target_address" == "$OP_TOKEN_ADDRESS" ]]; then
-    target_address_name="OP TOKEN"
-    target_address_network="ALL NETWORKS"
-    target_decimals="18"
-  elif [[ "$target_address" == "$MULTICALL3_ADDRESS" ]]; then
-    target_address_name="MULTICALL3"
-    target_address_network="ALL NETWORKS"
-  else
-    target_address_name="UNKNOWN"
-    target_address_network="UNKNOWN"
-  fi
+  local is_nested="${3:-false}"
 
   local function_selector="${function_data:0:10}"
-  local function_name="Unknown"
 
-  # Match known function selectors
+  # Identify known token addresses & decimals
+  local target_address_name="UNKNOWN CONTRACT"
+  local decimals=""
+  if [[ "$target_address" == "$USDC_MAINNET_ADDRESS" ]]; then
+    target_address_name="USDC"
+    decimals="6"
+  elif [[ "$target_address" == "$OP_TOKEN_ADDRESS" ]]; then
+    target_address_name="OP TOKEN"
+    decimals="18"
+  elif [[ "$target_address" == "$MULTICALL3_ADDRESS" ]]; then
+    target_address_name="MULTICALL3"
+  fi
+
+  # Initial fallback structure
+  local function_name="UNKNOWN"
+  local extra_json='{}'  # appended details about the function call
+
+  # If the calldata is too short, return minimal data
   if [[ "${#function_selector}" -lt 10 ]]; then
-    function_name="UNKNOWN (insufficient data)"
-  elif [[ "$function_selector" == "$(cast sig $TRANSFER_SIG)" ]]; then
-    function_name="$TRANSFER_SIG"
-  elif [[ "$function_selector" == "$(cast sig $TRANSFER_FROM_SIG)" ]]; then
-    function_name="$TRANSFER_FROM_SIG"
-  elif [[ "$function_selector" == "$(cast sig $APPROVE_SIG)" ]]; then
-    function_name="$APPROVE_SIG"
-  elif [[ "$function_selector" == "$(cast sig $INCREASE_ALLOWANCE_SIG)" ]]; then
-    function_name="$INCREASE_ALLOWANCE_SIG"
-  elif [[ "$function_selector" == "$(cast sig $DECREASE_ALLOWANCE_SIG)" ]]; then
-    function_name="$DECREASE_ALLOWANCE_SIG"
-  elif [[ "$function_selector" == "$(cast sig $APPROVE_HASH_SIG)" ]]; then
-    function_name="$APPROVE_HASH_SIG"
-  elif [[ "$function_selector" == "$(cast sig $AGGREGATE3_SIG)" ]]; then
-    function_name="$AGGREGATE3_SIG"
-  else
-    function_name="UNKNOWN (selector: $function_selector)"
+    # Return a simple JSON structure for "unknown"
+    jq -n \
+      --arg targetAddress "$target_address" \
+      --arg targetName "$target_address_name" \
+      --arg rawData "$function_data" \
+      '{
+        target: $targetAddress,
+        targetName: $targetName,
+        functionSelector: "INSUFFICIENT_DATA",
+        rawData: $rawData
+      }'
+    return
   fi
 
-  # Disallow nested Multicall calls
-  if [[ "$is_nested" == "true" && "$target_address" == "$MULTICALL3_ADDRESS" && "$function_selector" == "$(cast sig $AGGREGATE3_SIG)" ]]; then
-    echo -e "${YELLOW}ERROR: Nested Multicall3 detected. This is not supported.${RESET}" >&2
-    exit 1
-  fi
+  # Identify known function by signature
+  case "$function_selector" in
+    "$(cast sig $TRANSFER_SIG)")
+      function_name="$TRANSFER_SIG"
+      local decoded
+      decoded="$(cast decode-calldata "$TRANSFER_SIG" "$function_data")" || true
+      # Usually "decoded" has 2 lines: recipient, amount
+      local recipient="$(echo "$decoded" | sed -n '1p')"
+      local raw_amount="$(echo "$decoded" | sed -n '2p')"
+      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
+      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
 
-  # If top-level or valid nested call to Multicall, parse subcalls
-  if [[ "$target_address" == "$MULTICALL3_ADDRESS" && "$function_selector" == "$(cast sig $AGGREGATE3_SIG)" ]]; then
-    local decoded_calls
-    decoded_calls=$(cast decode-calldata "$AGGREGATE3_SIG" "$function_data")
+      extra_json="$(
+        jq -n \
+          --arg recipient "$recipient" \
+          --arg amount "$amount_decimals" \
+          '{
+             recipient: $recipient,
+             amount: $amount
+           }'
+      )"
+      ;;
+    "$(cast sig $TRANSFER_FROM_SIG)")
+      function_name="$TRANSFER_FROM_SIG"
+      local decoded
+      decoded="$(cast decode-calldata "$TRANSFER_FROM_SIG" "$function_data")" || true
+      # Usually "decoded" has 3 lines: from, to, amount
+      local from_addr="$(echo "$decoded" | sed -n '1p')"
+      local to_addr="$(echo "$decoded" | sed -n '2p')"
+      local raw_amount="$(echo "$decoded" | sed -n '3p')"
+      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
+      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
 
-    local total_calls
-    total_calls=$(echo "$decoded_calls" | grep -o "(" | wc -l)
+      extra_json="$(
+        jq -n \
+          --arg from "$from_addr" \
+          --arg to "$to_addr" \
+          --arg amount "$amount_decimals" \
+          '{
+             from: $from,
+             to: $to,
+             amount: $amount
+           }'
+      )"
+      ;;
+    "$(cast sig $APPROVE_SIG)")
+      function_name="$APPROVE_SIG"
+      local decoded
+      decoded="$(cast decode-calldata "$APPROVE_SIG" "$function_data")" || true
+      # Usually: spender, amount
+      local spender="$(echo "$decoded" | sed -n '1p')"
+      local raw_amount="$(echo "$decoded" | sed -n '2p')"
+      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
+      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
 
-    print_heading "TRANSACTIONS ARE BEING AGGREGATED WITH MULTICALL"
-    echo -e "${BOLD}Number of sub-transactions:${RESET} $total_calls"
-    echo ""
+      extra_json="$(
+        jq -n \
+          --arg spender "$spender" \
+          --arg amount "$amount_decimals" \
+          '{
+             spender: $spender,
+             amount: $amount
+           }'
+      )"
+      ;;
+    "$(cast sig $INCREASE_ALLOWANCE_SIG)")
+      function_name="$INCREASE_ALLOWANCE_SIG"
+      local decoded
+      decoded="$(cast decode-calldata "$INCREASE_ALLOWANCE_SIG" "$function_data")" || true
+      # Usually: spender, addedValue
+      local spender="$(echo "$decoded" | sed -n '1p')"
+      local raw_amount="$(echo "$decoded" | sed -n '2p')"
+      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
+      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
 
-    # Remove outer brackets [...]
-    local calls_str="${decoded_calls#\[}"
-    calls_str="${calls_str%\]}"
+      extra_json="$(
+        jq -n \
+          --arg spender "$spender" \
+          --arg amount "$amount_decimals" \
+          '{
+             spender: $spender,
+             amount: $amount
+           }'
+      )"
+      ;;
+    "$(cast sig $DECREASE_ALLOWANCE_SIG)")
+      function_name="$DECREASE_ALLOWANCE_SIG"
+      local decoded
+      decoded="$(cast decode-calldata "$DECREASE_ALLOWANCE_SIG" "$function_data")" || true
+      # Usually: spender, subtractedValue
+      local spender="$(echo "$decoded" | sed -n '1p')"
+      local raw_amount="$(echo "$decoded" | sed -n '2p')"
+      local amount_cleaned="$(sed -E 's/([0-9]+)( \[[^]]+\])?/\1/' <<< "$raw_amount")"
+      local amount_decimals="$(parse_token_amount "$amount_cleaned" "$decimals")"
 
-    local call_count=1
-    while [[ "$calls_str" =~ \(([^,]+),\ ([^,]+),\ ([^\)]+)\)(.*) ]]; do
-      local call_target="${BASH_REMATCH[1]}"
-      local call_allowFailure="${BASH_REMATCH[2]}"
-      local call_data="${BASH_REMATCH[3]}"
-      calls_str="${BASH_REMATCH[4]}"
+      extra_json="$(
+        jq -n \
+          --arg spender "$spender" \
+          --arg amount "$amount_decimals" \
+          '{
+             spender: $spender,
+             amount: $amount
+           }'
+      )"
+      ;;
+    "$(cast sig $APPROVE_HASH_SIG)")
+      function_name="$APPROVE_HASH_SIG"
+      local decoded
+      decoded="$(cast decode-calldata "$APPROVE_HASH_SIG" "$function_data")" || true
+      # Usually: single line with the hash
+      local hash_val="$(echo "$decoded" | sed -n '1p')"
 
-      # Remove leading comma and space if present
-      if [[ "$calls_str" =~ ^,\ (.*) ]]; then
-        calls_str="${BASH_REMATCH[1]}"
+      extra_json="$(
+        jq -n \
+          --arg hash "$hash_val" \
+          '{ hash: $hash }'
+      )"
+      ;;
+    "$(cast sig $AGGREGATE3_SIG)")
+      function_name="$AGGREGATE3_SIG"
+      # If nested inside a MULTICALL, block further nesting to avoid complexity
+      if [[ "$is_nested" == "true" ]]; then
+        # Return error JSON or exit. We'll choose to exit for clarity.
+        echo "Error: Nested Multicall3 detected, not supported." >&2
+        exit 1
       fi
 
-      parse_function_data "$call_target" "$call_data" "$call_count" true
-      ((call_count++))
-    done
+      # If this isn't a call to the multicall3 contract, we'll just return the
+      # function name & data
+      if [[ "$target_address" != "$MULTICALL3_ADDRESS" ]]; then
+        extra_json="$(
+          jq -n \
+            --arg functionName "$function_name" \
+            --arg functionData "$function_data" \
+            '{ functionName: $functionName, functionData: $functionData }'
+        )"
+      else
+        # Decode the subcalls
+        local decoded_calls
+        decoded_calls="$(cast decode-calldata "$AGGREGATE3_SIG" "$function_data")"
 
-  else
-    print_heading "TRANSACTION DETAILS (TX #${tx_number})"
-    printf "${GREEN}%-10s${RESET}: %s (%s)\n" "Target"     "$target_address" "$target_address_name"
-    printf "${GREEN}%-10s${RESET}: %s\n"      "Function"   "$function_name"
-    echo ""
+        # We'll parse them out with a while loop & store them in a JSON array
+        # Layout is: [ (targetAddr, bool, bytes), (targetAddr, bool, bytes), ... ]
+        # We can attempt a simpler parse strategy with a custom approach or a robust parser.
+        # For demonstration, let's do a basic approach with BASH regex.
 
-    # If the selector is too short, just display the raw data
-    if [[ "${#function_selector}" -lt 10 ]]; then
-      echo -e "${DIM}Raw Data:${RESET}"
-      echo "$function_data" | fold -w 80 -s
-      echo ""
-      return
-    fi
+        # Remove outer square brackets
+        local calls_str="${decoded_calls#\[}"
+        calls_str="${calls_str%\]}"
 
-    # Decode known functions
-    if [[ "$function_selector" == "$(cast sig $TRANSFER_SIG)" ]]; then
-      local decoded
-      decoded=$(cast decode-calldata "$TRANSFER_SIG" "$function_data")
-      local to
-      to=$(echo "$decoded" | head -1)
-      local amount_line
-      amount_line=$(echo "$decoded" | tail -1)
-      local amount
-      amount=$(echo "$amount_line" | sed -E 's/([0-9]+)( \[[^]]+\])?/\1/')
-      local formatted_amount
-      formatted_amount=$(parse_token_amount "$amount" "$target_decimals")
+        # We'll build an array string that we feed to jq
+        local subcalls_json='[]'
 
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "To" "$to"
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Amount" "$formatted_amount"
-      if [[ "$target_address_name" != "UNKNOWN" ]]; then
-        printf "  ${BOLD}%-8s${RESET}: %s\n" "Token" "$target_address_name"
+        while [[ "$calls_str" =~ \(([^,]+),\ ([^,]+),\ ([^\)]+)\)(.*) ]]; do
+          local call_target="${BASH_REMATCH[1]}"
+          local call_allowFailure="${BASH_REMATCH[2]}"
+          local call_data="${BASH_REMATCH[3]}"
+          calls_str="${BASH_REMATCH[4]}"
+
+          # Remove leading comma and space if present
+          if [[ "$calls_str" =~ ^,\ (.*) ]]; then
+            calls_str="${BASH_REMATCH[1]}"
+          fi
+
+          # Recursively parse each subcall
+          local sub_json
+          sub_json="$(parse_function_data "$call_target" "$call_data" "true")"
+
+          # Merge into array
+          subcalls_json="$(
+            jq -n \
+              --argjson arr "$subcalls_json" \
+              --argjson item "$sub_json" \
+              '($arr + [ $item ])'
+          )"
+        done
+
+        extra_json="$(
+          jq -n \
+            --argjson nestedCalls "$subcalls_json" \
+            '{
+              subcalls: $nestedCalls
+            }'
+        )"
       fi
-      echo ""
+      ;;
+    *)
+      # Unknown function - store the rawData for reference
+      function_name="UNKNOWN"
+      extra_json="$(
+        jq -n \
+          --arg data "$function_data" \
+          '{ rawData: $data }'
+      )"
+      ;;
+  esac
 
-    elif [[ "$function_selector" == "$(cast sig $TRANSFER_FROM_SIG)" ]]; then
-      local decoded
-      decoded=$(cast decode-calldata "$TRANSFER_FROM_SIG" "$function_data")
-      local from
-      from=$(echo "$decoded" | head -1)
-      local to
-      to=$(echo "$decoded" | sed -n '2p')
-      local amount_line
-      amount_line=$(echo "$decoded" | tail -1)
-      local amount
-      amount=$(echo "$amount_line" | sed -E 's/([0-9]+)( \[[^]]+\])?/\1/')
-      local formatted_amount
-      formatted_amount=$(parse_token_amount "$amount" "$target_decimals")
-
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "From"   "$from"
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "To"     "$to"
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Amount" "$formatted_amount"
-      if [[ "$target_address_name" != "UNKNOWN" ]]; then
-        printf "  ${BOLD}%-8s${RESET}: %s\n" "Token" "$target_address_name"
-      fi
-      echo ""
-
-    elif [[ "$function_selector" == "$(cast sig $APPROVE_SIG)" ]]; then
-      local decoded
-      decoded=$(cast decode-calldata "$APPROVE_SIG" "$function_data")
-      local spender
-      spender=$(echo "$decoded" | head -1)
-      local amount_line
-      amount_line=$(echo "$decoded" | tail -1)
-      local amount
-      amount=$(echo "$amount_line" | sed -E 's/([0-9]+)( \[[^]]+\])?/\1/')
-      local formatted_amount
-      formatted_amount=$(parse_token_amount "$amount" "$target_decimals")
-
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Spender" "$spender"
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Amount"  "$formatted_amount"
-      if [[ "$target_address_name" != "UNKNOWN" ]]; then
-        printf "  ${BOLD}%-8s${RESET}: %s\n" "Token" "$target_address_name"
-      fi
-      echo ""
-
-    elif [[ "$function_selector" == "$(cast sig $INCREASE_ALLOWANCE_SIG)" ]]; then
-      local decoded
-      decoded=$(cast decode-calldata "$INCREASE_ALLOWANCE_SIG" "$function_data")
-      local spender
-      spender=$(echo "$decoded" | head -1)
-      local amount_line
-      amount_line=$(echo "$decoded" | tail -1)
-      local amount
-      amount=$(echo "$amount_line" | sed -E 's/([0-9]+)( \[[^]]+\])?/\1/')
-      local formatted_amount
-      formatted_amount=$(parse_token_amount "$amount" "$target_decimals")
-
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Spender"  "$spender"
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Increase" "$formatted_amount"
-      if [[ "$target_address_name" != "UNKNOWN" ]]; then
-        printf "  ${BOLD}%-8s${RESET}: %s\n" "Token" "$target_address_name"
-      fi
-      echo ""
-
-    elif [[ "$function_selector" == "$(cast sig $DECREASE_ALLOWANCE_SIG)" ]]; then
-      local decoded
-      decoded=$(cast decode-calldata "$DECREASE_ALLOWANCE_SIG" "$function_data")
-      local spender
-      spender=$(echo "$decoded" | head -1)
-      local amount_line
-      amount_line=$(echo "$decoded" | tail -1)
-      local amount
-      amount=$(echo "$amount_line" | sed -E 's/([0-9]+)( \[[^]]+\])?/\1/')
-      local formatted_amount
-      formatted_amount=$(parse_token_amount "$amount" "$target_decimals")
-
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Spender"  "$spender"
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Decrease" "$formatted_amount"
-      if [[ "$target_address_name" != "UNKNOWN" ]]; then
-        printf "  ${BOLD}%-8s${RESET}: %s\n" "Token" "$target_address_name"
-      fi
-      echo ""
-
-    elif [[ "$function_selector" == "$(cast sig $APPROVE_HASH_SIG)" ]]; then
-      local decoded
-      decoded=$(cast decode-calldata "$APPROVE_HASH_SIG" "$function_data")
-      local hash
-      hash=$(echo "$decoded" | head -1)
-
-      printf "  ${BOLD}%-8s${RESET}: %s\n" "Hash" "$hash"
-      echo ""
-
-    else
-      # Unknown function - just show raw data
-      echo -e "${DIM}Raw Data:${RESET}"
-      echo "$function_data" | fold -w 80 -s
-      echo ""
-    fi
-  fi
+  # Finally, build the JSON for this call
+  jq -n \
+    --arg targetAddress "$target_address" \
+    --arg targetAddressName "$target_address_name" \
+    --arg fnName "$function_name" \
+    --arg selector "$function_selector" \
+    --arg functionData "$function_data" \
+    --argjson extra "$extra_json" \
+    '{
+      target: $targetAddress,
+      targetName: $targetAddressName,
+      functionName: $fnName,
+      functionSelector: $selector,
+      functionData: $functionData,
+      parsedData: $extra
+    }'
 }
 
 #------------------------------------------------------------------------------
-# Parses top-level transaction data, calling parse_function_data for the actual
-# decoding of the "data" field.
-# Globals:
-#   BOLD, RESET, YELLOW
-# Arguments:
-#   $1 - The path to the transaction file.
+# Reads the transaction file, extracts top-level fields, and returns JSON
+# describing the entire transaction (including any subcalls).
 #------------------------------------------------------------------------------
-parse_transaction_data() {
+create_transaction_json() {
   local transaction_file="$1"
 
   local safe chain to value data operation nonce
-  safe=$(get_transaction_field "$transaction_file" "safe")
-  chain=$(get_transaction_field "$transaction_file" "chain")
-  to=$(get_transaction_field "$transaction_file" "to")
-  value=$(get_transaction_field "$transaction_file" "value")
-  data=$(get_transaction_field "$transaction_file" "data")
-  operation=$(get_transaction_field "$transaction_file" "operation")
-  nonce=$(get_transaction_field "$transaction_file" "nonce")
+  safe="$(get_transaction_field "$transaction_file" "safe")"
+  chain="$(get_transaction_field "$transaction_file" "chain")"
+  to="$(get_transaction_field "$transaction_file" "to")"
+  value="$(get_transaction_field "$transaction_file" "value")"
+  data="$(get_transaction_field "$transaction_file" "data")"
+  operation="$(get_transaction_field "$transaction_file" "operation")"
+  nonce="$(get_transaction_field "$transaction_file" "nonce")"
 
-  local operation_name
+  # Operation ID to string
+  local operation_name="Unsupported"
   if [[ "$operation" == "0" ]]; then
     operation_name="Call"
   elif [[ "$operation" == "1" ]]; then
     operation_name="DelegateCall"
-  else
-    echo -e "${YELLOW}Error: Unsupported operation \"${operation}\".${RESET}" >&2
-    exit 1
   fi
 
-  echo ""
-  print_heading "BASIC TRANSACTION DETAILS"
-  printf "${BOLD}%-14s${RESET}: %s\n" "Safe"       "$safe"
-  printf "${BOLD}%-14s${RESET}: %s\n" "Chain ID"   "$chain"
-  printf "${BOLD}%-14s${RESET}: %s\n" "Target"     "$to"
-  printf "${BOLD}%-14s${RESET}: %s\n" "ETH Value"  "$value"
-  printf "${BOLD}%-14s${RESET}: %s\n" "Nonce"      "$nonce"
-  printf "${BOLD}%-14s${RESET}: %s\n" "Operation"  "$operation_name"
-  echo ""
+  # build the JSON for the top-level function call
+  local top_level_call
+  top_level_call="$(parse_function_data "$to" "$data" "false")"
 
-  parse_function_data "$to" "$data" 1 false
+  jq -n \
+    --arg safe "$safe" \
+    --arg chain "$chain" \
+    --arg to "$to" \
+    --arg value "$value" \
+    --arg operation "$operation_name" \
+    --arg nonce "$nonce" \
+    --argjson calls "$top_level_call" \
+    '{
+      safe: $safe,
+      chain: $chain,
+      to: $to,
+      value: $value,
+      operation: $operation,
+      nonce: $nonce,
+      call: $calls
+    }'
 }
 
 #------------------------------------------------------------------------------
-# MAIN ENTRY POINT
+# MAIN: Parse arguments, produce final JSON with domainHash, messageHash, etc.
 #------------------------------------------------------------------------------
 main() {
   local transaction_file=""
 
-  # Parse command line arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --tx)
@@ -549,36 +498,30 @@ main() {
 
   if [[ -z "$transaction_file" ]]; then
     echo "Error: Transaction file not specified. Use --tx <file>."
-    echo ""
     usage
   fi
 
   check_transaction_file "$transaction_file"
 
-  # Generate the domain hash
+  # Generate necessary details
   local domain_hash
-  domain_hash=$(make_domain_hash "$transaction_file")
-
-  # Generate the message hash
   local message_hash
-  message_hash=$(make_message_hash "$transaction_file")
+  domain_hash="$(make_domain_hash "$transaction_file")"
+  message_hash="$(make_message_hash "$transaction_file")"
 
-  # Parse and display transaction data
-  parse_transaction_data "$transaction_file"
+  local tx_json
+  tx_json="$(create_transaction_json "$transaction_file")"
 
-  # Print domain and message hashes
-  print_heading "HASHES"
-  printf "${BOLD}%-12s${RESET}: %s\n" "Domain Hash"  "$domain_hash"
-  printf "${BOLD}%-12s${RESET}: %s\n" "Message Hash" "$message_hash"
-  echo ""
-
-  # Print verification instructions
-  print_heading "VERIFICATION INSTRUCTIONS"
-  echo -e "${BOLD}1. Transaction details should EXACTLY MATCH what you expect to see.${RESET}"
-  echo -e "${BOLD}2. Domain and message hashes should EXACTLY MATCH other machines.${RESET}"
-  echo -e "${BOLD}3. Your hardware wallet should show you the EXACT SAME HASHES.${RESET}"
-  echo -e "${BOLD}4. WHEN IN DOUBT, ASK FOR HELP.${RESET}"
-  echo ""
+  # Build final combined JSON (domainHash + messageHash + transaction)
+  jq -n \
+    --arg domainHash "$domain_hash" \
+    --arg messageHash "$message_hash" \
+    --argjson transaction "$tx_json" \
+    '{
+      domainHash: $domainHash,
+      messageHash: $messageHash,
+      transaction: $transaction
+    }'
 }
 
 main "$@"
