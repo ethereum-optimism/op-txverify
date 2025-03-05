@@ -24,12 +24,12 @@ YELLOW="\e[33m"
 
 print_heading() {
   local heading="$1"
-  echo -e "${BOLD}${CYAN}${heading}${RESET}"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+  printf "${BOLD}${CYAN}%s${RESET}\n" "$heading"
+  printf "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
 }
 
 print_divider() {
-  echo -e "${DIM}${MAGENTA}──────────────────━━━━━━━───────────────────────────────────────────────────────${RESET}"
+  printf "${DIM}${MAGENTA}──────────────────━━━━━━━───────────────────────────────────────────────────────${RESET}\n"
 }
 
 ###############################################################################
@@ -68,7 +68,7 @@ print_call() {
   # 1) If rawData is present (no parsedData, or unknown function):
   local raw_data="$(echo "$call_json" | jq -r '.rawData // empty')"
   if [[ -n "$raw_data" ]]; then
-    echo -e "${DIM}Raw Data:${RESET}"
+    printf "${DIM}Raw Data:${RESET}\n"
     echo "$raw_data" | fold -w 80 -s
     echo ""
     return
@@ -83,7 +83,7 @@ print_call() {
       # This is a multicall array
       local count_subcalls="$(echo "$subcalls" | jq -r 'length')"
       print_heading "TRANSACTION INCLUDES NESTED SUBCALLS"
-      echo -e "${BOLD}Number of subcalls:${RESET} $count_subcalls"
+      printf "${BOLD}Number of subcalls:${RESET} %s\n" "$count_subcalls"
       echo ""
 
       # Iterate over subcalls array
@@ -99,14 +99,14 @@ print_call() {
       
       if [[ -n "$raw_data_in_parsed" && "$keys_count" -eq 1 ]]; then
         # Only contains rawData, print it specially
-        echo -e "${DIM}Raw Data:${RESET}"
+        printf "${DIM}Raw Data:${RESET}\n"
         echo "$raw_data_in_parsed" | fold -w 80 -s
         echo ""
         return
       fi
       
       # Print each field in parsedData in a readable format (excluding rawData)
-      echo -e "${DIM}Parsed Data:${RESET}"
+      printf "${DIM}Parsed Data:${RESET}\n"
       
       # Get all the keys from parsedData except rawData
       local keys=$(echo "$parsed_data" | jq -r 'keys[] | select(. != "rawData")')
@@ -126,7 +126,7 @@ print_call() {
   fi
 
   # 3) Fallback if nothing else matched
-  echo -e "${DIM}Raw Function Data (fallback):${RESET}"
+  printf "${DIM}Raw Function Data (fallback):${RESET}\n"
   echo "$call_json" | jq -r '.functionData' | fold -w 80 -s
   echo ""
 }
@@ -148,14 +148,14 @@ if ! json_result="$(
   "$(dirname "$0")/strategies/forge/op-verify.sh" \
     --tx "$transaction_file" \
 )"; then
-  echo -e "${BOLD}${YELLOW}ERROR:${RESET} Failed to verify transaction using op-verify.sh"
+  printf "${BOLD}${YELLOW}ERROR:${RESET} Failed to verify transaction using op-verify.sh\n"
   echo "Please check that the transaction file exists and is valid."
   exit 1
 fi
 
 # Check if the result is valid JSON
 if ! echo "$json_result" | jq . >/dev/null 2>&1; then
-  echo -e "${BOLD}${YELLOW}ERROR:${RESET} op-verify.sh returned invalid JSON:"
+  printf "${BOLD}${YELLOW}ERROR:${RESET} op-verify.sh returned invalid JSON:\n"
   echo "$json_result"
   exit 1
 fi
@@ -195,8 +195,8 @@ echo ""
 
 # 6. Print final verification instructions
 print_heading "VERIFICATION INSTRUCTIONS"
-echo -e "${BOLD}1. Transaction details should EXACTLY MATCH what you expect to see.${RESET}"
-echo -e "${BOLD}2. Domain and message hashes should EXACTLY MATCH other machines.${RESET}"
-echo -e "${BOLD}3. Your hardware wallet should show you the EXACT SAME HASHES.${RESET}"
-echo -e "${BOLD}4. WHEN IN DOUBT, ASK FOR HELP.${RESET}"
+printf "${BOLD}1. Transaction details should EXACTLY MATCH what you expect to see.${RESET}\n"
+printf "${BOLD}2. Domain and message hashes should EXACTLY MATCH other machines.${RESET}\n"
+printf "${BOLD}3. Your hardware wallet should show you the EXACT SAME HASHES.${RESET}\n"
+printf "${BOLD}4. WHEN IN DOUBT, ASK FOR HELP.${RESET}\n"
 echo ""
