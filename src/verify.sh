@@ -55,14 +55,15 @@ print_call() {
   if [[ "$is_nested" == "false" ]]; then
     print_heading "TRANSACTION DETAILS (TX #$call_counter)"
   else
-    print_heading "SUBCALL DETAILS (TX #$call_counter)"
+    # For subcalls, display the counter - 1 to match expected numbering
+    print_heading "SUBCALL DETAILS (SUBCALL #$((call_counter-1)))"
   fi
 
   # Increment the global call counter
   ((call_counter++))
 
-  printf "${GREEN}%-10s${RESET}: %s (%s)\n" "Target" "$target_addr" "$target_name"
-  printf "${GREEN}%-10s${RESET}: %s\n\n" "Function" "$fn_name"
+  printf "${MAGENTA}%-10s${RESET}: %s (%s)\n" "Target" "$target_addr" "$target_name"
+  printf "${MAGENTA}%-10s${RESET}: %s\n\n" "Function" "$fn_name"
 
   # 1) If rawData is present (no parsedData, or unknown function):
   local raw_data="$(echo "$call_json" | jq -r '.rawData // empty')"
@@ -81,8 +82,8 @@ print_call() {
     if [[ -n "$subcalls" && "$subcalls" != "null" ]]; then
       # This is a multicall array
       local count_subcalls="$(echo "$subcalls" | jq -r 'length')"
-      print_heading "TRANSACTIONS ARE BEING NESTED WITH MULTICALL3"
-      echo -e "${BOLD}Number of sub-transactions:${RESET} $count_subcalls"
+      print_heading "TRANSACTION INCLUDES NESTED SUBCALLS"
+      echo -e "${BOLD}Number of subcalls:${RESET} $count_subcalls"
       echo ""
 
       # Iterate over subcalls array
@@ -116,7 +117,7 @@ print_call() {
         local value=$(echo "$parsed_data" | jq -r --arg k "$key" '.[$k] | tostring')
         
         # Format the output
-        printf "${YELLOW}%-15s${RESET}: %s\n" "$key" "$value"
+        printf "${YELLOW}%-12s${RESET}: %s\n" "$key" "$value"
       done
       
       echo ""
@@ -196,6 +197,6 @@ echo ""
 print_heading "VERIFICATION INSTRUCTIONS"
 echo -e "${BOLD}1. Transaction details should EXACTLY MATCH what you expect to see.${RESET}"
 echo -e "${BOLD}2. Domain and message hashes should EXACTLY MATCH other machines.${RESET}"
-echo -e "${BOLD}3. Hardware wallet should show you the EXACT SAME HASHES.${RESET}"
+echo -e "${BOLD}3. Your hardware wallet should show you the EXACT SAME HASHES.${RESET}"
 echo -e "${BOLD}4. WHEN IN DOUBT, ASK FOR HELP.${RESET}"
 echo ""

@@ -29,8 +29,10 @@ readonly INCREASE_ALLOWANCE_SIG="increaseAllowance(address,uint256)"
 readonly DECREASE_ALLOWANCE_SIG="decreaseAllowance(address,uint256)"
 readonly APPROVE_HASH_SIG="approveHash(bytes32)"
 readonly AGGREGATE3_SIG="aggregate3((address,bool,bytes)[])"
+readonly SAFE_MULTISEND_SIG="multiSend(bytes)"
 
 # Known addresses & decimals
+readonly SAFE_MULTISEND_ADDRESS="0xA1dabEF33b3B82c7814B6D82A79e50F4AC44102B"
 readonly MULTICALL3_ADDRESS="0xcA11bde05977b3631167028862bE2a173976CA11"
 readonly USDC_MAINNET_ADDRESS="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 readonly OP_TOKEN_ADDRESS="0x4200000000000000000000000000000000000042"
@@ -191,6 +193,8 @@ parse_function_data() {
     decimals="18"
   elif [[ "$target_address" == "$MULTICALL3_ADDRESS" ]]; then
     target_address_name="MULTICALL3"
+  elif [[ "$target_address" == "$SAFE_MULTISEND_ADDRESS" ]]; then
+    target_address_name="GNOSIS SAFE MULTISEND"
   fi
 
   # Initial fallback structure
@@ -393,6 +397,66 @@ parse_function_data() {
             }'
         )"
       fi
+      ;;
+    "$(cast sig $SAFE_MULTISEND_SIG)")
+      function_name="$SAFE_MULTISEND_SIG"
+      
+      # Decode the multiSend calldata to get the transactions bytes
+      local decoded
+      decoded="$(cast --json decode-calldata "$SAFE_MULTISEND_SIG" "$function_data")" || true
+      local transactions_bytes="$(echo "$decoded" | jq -r '.[0]')"
+      
+      # Remove 0x prefix for processing
+      transactions_bytes="${transactions_bytes#0x}"
+      
+      # Initialize array for storing decoded transactions
+      local subcalls_json='[]'
+      local position=0
+      
+      # Process each transaction in the bytes
+      while [[ $position -lt ${#transactions_bytes} ]]; do
+        # Extract operation (1 byte)
+        local operation="${transactions_bytes:$position:2}"
+        position=$((position + 2))
+        
+        # Extract to address (20 bytes)
+        local to="0x${transactions_bytes:$position:40}"
+        position=$((position + 40))
+        
+        # Extract value (32 bytes)
+        local value="0x${transactions_bytes:$position:64}"
+        position=$((position + 64))
+        
+        # Extract data length (32 bytes)
+        local data_length_hex="0x${transactions_bytes:$position:64}"
+        local data_length=$((data_length_hex))
+        position=$((position + 64))
+        
+        # Extract data (variable length)
+        local data_length_chars=$((data_length * 2))
+        local data="0x${transactions_bytes:$position:$data_length_chars}"
+        position=$((position + data_length_chars))
+        
+        # Parse the function data for this transaction
+        local sub_json
+        sub_json="$(parse_function_data "$to" "$data" "true")"
+        
+        # Add to subcalls array
+        subcalls_json="$(
+          jq -n \
+            --argjson arr "$subcalls_json" \
+            --argjson item "$sub_json" \
+            '($arr + [ $item ])'
+        )"
+      done
+      
+      extra_json="$(
+        jq -n \
+          --argjson nestedCalls "$subcalls_json" \
+          '{
+            subcalls: $nestedCalls
+          }'
+      )"
       ;;
     *)
       # Unknown function - store the rawData for reference
