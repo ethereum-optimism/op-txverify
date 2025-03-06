@@ -27,7 +27,7 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	fmt.Fprintf(w, "%s: %s\n", bold("Safe"), tx.Safe)
 	fmt.Fprintf(w, "%s: %d\n", bold("Chain ID"), tx.Chain)
 	fmt.Fprintf(w, "%s: %s\n", bold("Target"), tx.To)
-	fmt.Fprintf(w, "%s: %s\n", bold("ETH Value"), tx.Value)
+	fmt.Fprintf(w, "%s: %d\n", bold("ETH Value"), tx.Value)
 	fmt.Fprintf(w, "%s: %d\n", bold("Nonce"), tx.Nonce)
 	fmt.Fprintf(w, "%s: %d\n", bold("Operation"), tx.Operation)
 	fmt.Fprintln(w, "")

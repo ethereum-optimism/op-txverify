@@ -101,37 +101,45 @@ var KnownFunctions = make(map[string]FunctionInfo)
 func init() {
 	// Parse each signature and add to KnownFunctions
 	for _, sig := range KnownSignatures {
-		// Extract function name from signature
-		funcName := strings.Split(sig, "(")[0]
-
-		// Create a minimal ABI with just this function
-		parsedABI, err := abi.JSON(strings.NewReader(fmt.Sprintf(`[{"name":"%s","type":"function","inputs":%s}]`,
-			funcName,
-			getInputsJSON(sig))))
-
+		funcInfo, err := ParseFunctionSignature(sig)
 		if err != nil {
 			// Log error but continue
-			fmt.Printf("Error parsing ABI for %s: %v\n", sig, err)
+			fmt.Printf("Error parsing function signature %s: %v\n", sig, err)
 			continue
 		}
 
-		// Get the method from the parsed ABI
-		method, exist := parsedABI.Methods[funcName]
-		if !exist {
-			continue
-		}
-
-		// Calculate the function selector
-		selector := method.ID
+		// Add to known functions map using the selector hex
+		selector := funcInfo.ABI.ID
 		selectorHex := hex.EncodeToString(selector)
-
-		// Add to known functions map
-		KnownFunctions[selectorHex] = FunctionInfo{
-			Name:      funcName,
-			Signature: sig,
-			ABI:       method,
-		}
+		KnownFunctions[selectorHex] = funcInfo
 	}
+}
+
+// ParseFunctionSignature converts a function signature string to FunctionInfo
+func ParseFunctionSignature(sig string) (FunctionInfo, error) {
+	// Extract function name from signature
+	funcName := strings.Split(sig, "(")[0]
+
+	// Create a minimal ABI with just this function
+	parsedABI, err := abi.JSON(strings.NewReader(fmt.Sprintf(`[{"name":"%s","type":"function","inputs":%s}]`,
+		funcName,
+		getInputsJSON(sig))))
+
+	if err != nil {
+		return FunctionInfo{}, fmt.Errorf("error parsing ABI for %s: %v", sig, err)
+	}
+
+	// Get the method from the parsed ABI
+	method, exist := parsedABI.Methods[funcName]
+	if !exist {
+		return FunctionInfo{}, fmt.Errorf("method %s not found in parsed ABI", funcName)
+	}
+
+	return FunctionInfo{
+		Name:      funcName,
+		Signature: sig,
+		ABI:       method,
+	}, nil
 }
 
 // Helper function to generate JSON for function inputs
