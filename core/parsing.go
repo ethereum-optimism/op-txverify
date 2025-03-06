@@ -144,7 +144,13 @@ func parseArguments(method abi.Method, calldata string) (map[string]interface{},
 		if name == "" {
 			name = fmt.Sprintf("arg%d", i)
 		}
-		result[name] = arg
+
+		// Convert byte arrays to hex strings for better readability
+		if byteArray, ok := arg.([]byte); ok {
+			result[name] = "0x" + hex.EncodeToString(byteArray)
+		} else {
+			result[name] = arg
+		}
 	}
 
 	return result, nil
@@ -162,9 +168,15 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 		// For Safe Multisend contract, check the function signature
 		if functionInfo.Signature == SafeMultisendSig {
 			// Parse multiSend calldata
-			data, ok := args["transactions"].([]byte)
-			if !ok {
+			hexData, ok := args["transactions"].(string)
+			if !ok || !strings.HasPrefix(hexData, "0x") {
 				return nil, errors.New("invalid multiSend data format")
+			}
+
+			// Convert hex string to bytes
+			data, err := hex.DecodeString(strings.TrimPrefix(hexData, "0x"))
+			if err != nil {
+				return nil, fmt.Errorf("invalid multiSend data: %v", err)
 			}
 
 			// multiSend data format: operation (1 byte) + to (20 bytes) + value (32 bytes) + dataLength (32 bytes) + data (variable)
@@ -220,14 +232,14 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 			calls, ok := args["calls"].([]struct {
 				Target       common.Address
 				AllowFailure bool
-				CallData     []byte
+				CallData     string
 			})
 			if !ok {
 				return nil, errors.New("invalid aggregate3 data format")
 			}
 
 			for _, call := range calls {
-				subcall, err := ParseTransactionData(call.Target.Hex(), "0x"+hex.EncodeToString(call.CallData), chainID, options)
+				subcall, err := ParseTransactionData(call.Target.Hex(), call.CallData, chainID, options)
 				if err != nil {
 					continue
 				}

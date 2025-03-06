@@ -1,7 +1,6 @@
 package output
 
 import (
-	"encoding/hex"
 	"fmt"
 	"io"
 	"sort"
@@ -101,13 +100,7 @@ func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divid
 
 			// Print values using sorted keys
 			for _, key := range keys {
-				value := parsedMap[key]
-				// Format byte arrays as hex strings
-				if byteArray, ok := value.([]byte); ok {
-					fmt.Fprintf(w, "%s: 0x%s\n", yellow(key), hex.EncodeToString(byteArray))
-				} else {
-					fmt.Fprintf(w, "%s: %v\n", yellow(key), value)
-				}
+				fmt.Fprintf(w, "%s: %v\n", yellow(key), parsedMap[key])
 			}
 		} else {
 			// If it's not a map, just print the value
