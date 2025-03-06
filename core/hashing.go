@@ -2,7 +2,6 @@ package core
 
 import (
 	"math/big"
-	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -82,10 +81,7 @@ func CalculateMessageHash(tx SafeTransaction) (string, error) {
 	toAddress := common.HexToAddress(tx.To)
 
 	// Convert value to big.Int
-	value := new(big.Int)
-	if tx.Value != "" {
-		value.SetString(strings.TrimPrefix(tx.Value, "0x"), 16)
-	}
+	value := big.NewInt(int64(tx.Value))
 
 	// Calculate data hash
 	dataBytes := common.FromHex(tx.Data)

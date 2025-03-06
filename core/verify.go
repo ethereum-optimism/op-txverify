@@ -20,7 +20,7 @@ type SafeTransaction struct {
 	Safe           string   `json:"safe"`
 	Chain          int      `json:"chain"`
 	To             string   `json:"to"`
-	Value          string   `json:"value"`
+	Value          int      `json:"value"`
 	Data           string   `json:"data"`
 	Operation      int      `json:"operation"`
 	SafeTxGas      int      `json:"safe_tx_gas"`
