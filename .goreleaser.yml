@@ -71,3 +71,14 @@ source:
   enabled: true
   name_template: '{{ .ProjectName }}_{{ .Version }}_source'
   format: 'zip'
+
+signs:
+  - artifacts: checksum
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}!"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"

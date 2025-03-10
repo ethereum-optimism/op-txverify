@@ -13,10 +13,6 @@ const (
 	DomainSeparatorTypehash = "0x47e79534a245952e8b16893a336b85a3d9ea9fa8c573f3d803afb92a79469218"
 	SafeTxTypehash          = "0xbb8310d486368db6bd6f849402fdd73ad53d316b5a4b2644ad6efe0f941286d8"
 
-	// ABI type strings
-	DomainSeparatorSig = "bytes32,uint256,address"
-	SafeTxSig          = "bytes32,address,uint256,bytes32,uint8,uint256,uint256,uint256,address,address,uint256"
-
 	// Function signatures needed for parseMulticall
 	SafeMultisendSig = "multiSend(bytes transactions)"
 	Aggregate3Sig    = "aggregate3((address target,bool allowFailure,bytes callData)[] calls)"
