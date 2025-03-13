@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"strings"
 
@@ -168,11 +169,35 @@ func parseArguments(method abi.Method, calldata string) (map[string]interface{},
 			name = fmt.Sprintf("arg%d", i)
 		}
 
-		// Convert byte arrays to hex strings for better readability
+		log.Printf("%s: %v", name, arg)
+		// print the type of arg?
+		log.Printf("%T", arg)
+
+		// Convert byte arrays and fixed-size uint8 arrays to hex strings for better readability
 		if byteArray, ok := arg.([]byte); ok {
 			result[name] = "0x" + hex.EncodeToString(byteArray)
 		} else {
-			result[name] = arg
+			// Check for fixed-size uint8 arrays using type string
+			argType := fmt.Sprintf("%T", arg)
+			if strings.HasPrefix(argType, "[") && strings.HasSuffix(argType, "]uint8") {
+				// Convert the fixed-size array to a byte slice
+				bytes := make([]byte, 0)
+
+				// Get string representation without brackets
+				str := fmt.Sprintf("%v", arg)
+				str = strings.Trim(str, "[]")
+
+				// Split by space (Go's array string representation uses spaces)
+				for _, numStr := range strings.Fields(str) {
+					var val uint8
+					fmt.Sscanf(numStr, "%d", &val)
+					bytes = append(bytes, val)
+				}
+
+				result[name] = "0x" + hex.EncodeToString(bytes)
+			} else {
+				result[name] = arg
+			}
 		}
 	}
 

@@ -165,6 +165,9 @@ func onlineAction(c *cli.Context) error {
 		return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
 	}
 
+	// Strip the chain prefix if present
+	address = core.StripChainPrefix(address)
+
 	// Generate the transaction
 	tx, err := core.GenerateTransaction(network, address, nonce)
 	if err != nil {

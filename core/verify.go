@@ -50,8 +50,8 @@ type VerifyOptions struct {
 // VerifyTransaction verifies a Safe transaction
 func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*VerificationResult, error) {
 	// Strip chain prefix from the target address (e.g., "oeth:", "eth:")
-	tx.To = stripChainPrefix(tx.To)
-	tx.Safe = stripChainPrefix(tx.Safe)
+	tx.To = StripChainPrefix(tx.To)
+	tx.Safe = StripChainPrefix(tx.Safe)
 
 	// Parse the transaction data
 	call, err := ParseTransactionData(tx.To, tx.Data, uint64(tx.Chain), options)
@@ -89,10 +89,8 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 }
 
 // stripChainPrefix removes chain prefixes like "oeth:", "eth:", etc. from addresses
-func stripChainPrefix(address string) string {
-	// Check if the address contains a colon
+func StripChainPrefix(address string) string {
 	if idx := strings.Index(address, ":"); idx != -1 {
-		// Return everything after the colon
 		return address[idx+1:]
 	}
 	return address
