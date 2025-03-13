@@ -26,6 +26,7 @@ const (
 	USDCMainnetAddress       = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 	OPTokenAddress           = "0x4200000000000000000000000000000000000042"
 	SuperfluidOP             = "0x1828Bff08BD244F7990edDCd9B19cc654b33cDB4"
+	OptimismGovernor         = "0xcDF27F107725988f2261Ce2256bDfCdE8B382B10"
 )
 
 // Known function signatures
@@ -40,6 +41,7 @@ var KnownSignatures = []string{
 	"multiSend(bytes transactions)",
 	"callAgreement(address agreementClass, bytes callData, bytes userData)",
 	"createVestingScheduleFromAmountAndDuration(address superToken, address receiver, uint256 totalAmount, uint32 totalDuration, uint32 startDate, uint32 cliffPeriod, uint32 claimPeriod)",
+	"propose(address[] targets, uint256[] values, bytes[] calldatas, string description, uint8 proposalType)",
 }
 
 // ContractInfo stores information about a known contract
@@ -74,6 +76,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
 		strings.ToLower(OPTokenAddress):           {Name: "OP TOKEN", Decimals: 18},
 		strings.ToLower(SuperfluidOP):             {Name: "SUPERFLUID OP", Decimals: 18},
+		strings.ToLower(OptimismGovernor):         {Name: "OPTIMISM GOVERNOR", Decimals: 0},
 	},
 }
 
