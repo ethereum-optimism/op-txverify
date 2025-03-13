@@ -27,6 +27,8 @@ const (
 	OPTokenAddress           = "0x4200000000000000000000000000000000000042"
 	SuperfluidOP             = "0x1828Bff08BD244F7990edDCd9B19cc654b33cDB4"
 	OptimismGovernor         = "0xcDF27F107725988f2261Ce2256bDfCdE8B382B10"
+	OPGrants1                = "0x2501c477D0A35545a387Aa4A3EEe4292A9a8B3F0"
+	OPGrants2                = "0x19793c7824Be70ec58BB673CA42D2779d12581BE"
 )
 
 // Known function signatures
@@ -42,6 +44,15 @@ var KnownSignatures = []string{
 	"callAgreement(address agreementClass, bytes callData, bytes userData)",
 	"createVestingScheduleFromAmountAndDuration(address superToken, address receiver, uint256 totalAmount, uint32 totalDuration, uint32 startDate, uint32 cliffPeriod, uint32 claimPeriod)",
 	"propose(address[] targets, uint256[] values, bytes[] calldatas, string description, uint8 proposalType)",
+}
+
+// Functions on ERC20 tokens that require decimal adjustment
+var TokenFunctions = map[string]bool{
+	"transfer":          true,
+	"transferFrom":      true,
+	"approve":           true,
+	"increaseAllowance": true,
+	"decreaseAllowance": true,
 }
 
 // ContractInfo stores information about a known contract
@@ -63,6 +74,12 @@ const (
 	OPMainnetChainID = 10
 )
 
+// ChainNames maps chain IDs to their names
+var ChainNames = map[uint64]string{
+	MainnetChainID:   "Ethereum",
+	OPMainnetChainID: "OP Mainnet",
+}
+
 // KnownContracts maps chain IDs to a map of addresses to contract info
 var KnownContracts = map[uint64]map[string]ContractInfo{
 	MainnetChainID: {
@@ -77,6 +94,8 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPTokenAddress):           {Name: "OP TOKEN", Decimals: 18},
 		strings.ToLower(SuperfluidOP):             {Name: "SUPERFLUID OP", Decimals: 18},
 		strings.ToLower(OptimismGovernor):         {Name: "OPTIMISM GOVERNOR", Decimals: 0},
+		strings.ToLower(OPGrants1):                {Name: "OP GRANTS 1 (3F0)", Decimals: 0},
+		strings.ToLower(OPGrants2):                {Name: "OP GRANTS 2 (1BE)", Decimals: 0},
 	},
 }
 
@@ -171,4 +190,13 @@ func getInputsJSON(signature string) string {
 	}
 
 	return "[" + strings.Join(inputs, ",") + "]"
+}
+
+func GetKnownContract(address string, chainID uint64) (ContractInfo, bool) {
+	normalizedAddr := strings.ToLower(address)
+	if chainContracts, exists := KnownContracts[chainID]; exists {
+		contractInfo, isKnown := chainContracts[normalizedAddr]
+		return contractInfo, isKnown
+	}
+	return ContractInfo{}, false
 }

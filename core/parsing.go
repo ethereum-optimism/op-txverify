@@ -20,15 +20,10 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 	normalizedTo := strings.ToLower(to)
 
 	// Check if this is a known contract
-	var contractInfo ContractInfo
-	var isKnownContract bool
+	contractInfo, isKnownContract := GetKnownContract(normalizedTo, chainID)
 	targetName := ""
-
-	if chainContracts, exists := KnownContracts[chainID]; exists {
-		contractInfo, isKnownContract = chainContracts[normalizedTo]
-		if isKnownContract {
-			targetName = contractInfo.Name
-		}
+	if isKnownContract {
+		targetName = contractInfo.Name
 	}
 
 	// If data is empty, return a simple transfer call
@@ -78,6 +73,21 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 		}, nil
 	}
 
+	// If this is a token function on a known contract where we have decimals, adjust the amount
+	if isKnownContract && TokenFunctions[functionInfo.Name] && contractInfo.Decimals > 0 && parsedArgs["amount"] != nil {
+		parsedArgs["amount"] = ParseDecimals(parsedArgs["amount"].(*big.Int), contractInfo.Decimals)
+	}
+
+	// Check if any of the arguments are known contracts
+	for key, value := range parsedArgs {
+		if value, ok := value.(common.Address); ok {
+			contractInfo, isKnownContract := GetKnownContract(value.Hex(), chainID)
+			if isKnownContract {
+				parsedArgs[key] = fmt.Sprintf("%s (%s ✅)", value, contractInfo.Name)
+			}
+		}
+	}
+
 	// Check if this is a multicall contract and the function is a multicall function
 	isMulticallContract := false
 	if chainMulticalls, exists := MulticallAddresses[chainID]; exists {
@@ -109,6 +119,20 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 		FunctionName: functionInfo.Name,
 		ParsedData:   parsedArgs,
 	}, nil
+}
+
+// ParseDecimals parses the amount and returns it as a string with the correct number of decimals
+func ParseDecimals(amount *big.Int, decimals int) string {
+	amountStr := amount.String()
+
+	// Pad with leading zeros if needed
+	if len(amountStr) <= decimals {
+		amountStr = strings.Repeat("0", decimals-len(amountStr)+1) + amountStr
+	}
+
+	// Insert decimal point at the right position
+	decimalPos := len(amountStr) - decimals
+	return amountStr[:decimalPos] + "." + amountStr[decimalPos:]
 }
 
 // parseArguments decodes the function arguments from calldata

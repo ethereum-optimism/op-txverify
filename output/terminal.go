@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"math/big"
 	"sort"
 
 	"github.com/ethereum-optimism/op-verify/core"
@@ -23,13 +24,49 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	fmt.Fprintln(w, heading("BASIC TRANSACTION DETAILS"))
 	fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 
+	// Extract transaction details
 	tx := result.Transaction
-	fmt.Fprintf(w, "%s: %s\n", bold("Safe"), tx.Safe)
-	fmt.Fprintf(w, "%s: %d\n", bold("Chain ID"), tx.Chain)
-	fmt.Fprintf(w, "%s: %s\n", bold("Target"), tx.To)
-	fmt.Fprintf(w, "%s: %d\n", bold("ETH Value"), tx.Value)
+
+	// Display verified Safe if we can
+	safeContractInfo, isKnownSafeContract := core.GetKnownContract(tx.Safe, uint64(tx.Chain))
+	safeDisplay := tx.Safe
+	if isKnownSafeContract {
+		safeDisplay = fmt.Sprintf("%s (%s ✅)", tx.Safe, safeContractInfo.Name)
+	}
+
+	// Display verified Target if we can
+	targetContractInfo, isKnownTargetContract := core.GetKnownContract(tx.To, uint64(tx.Chain))
+	targetDisplay := tx.To
+	if isKnownTargetContract {
+		targetDisplay = fmt.Sprintf("%s (%s ✅)", tx.To, targetContractInfo.Name)
+	}
+
+	// Parse out the operation being performed
+	var operation string
+	if tx.Operation == 0 {
+		operation = "CALL"
+	} else if tx.Operation == 1 {
+		operation = "DELEGATECALL"
+	} else {
+		operation = "UNKNOWN OPERATION ❌"
+	}
+
+	// Parse out the value being sent
+	value := core.ParseDecimals(big.NewInt(int64(tx.Value)), 18)
+
+	// Parse out network
+	network, isKnownNetwork := core.ChainNames[uint64(tx.Chain)]
+	chainDisplay := fmt.Sprintf("%d", int(tx.Chain))
+	if isKnownNetwork {
+		chainDisplay = fmt.Sprintf("%d (%s ✅)", int(tx.Chain), network)
+	}
+
+	fmt.Fprintf(w, "%s: %s\n", bold("Safe"), safeDisplay)
+	fmt.Fprintf(w, "%s: %s\n", bold("Chain ID"), chainDisplay)
+	fmt.Fprintf(w, "%s: %s\n", bold("Target"), targetDisplay)
+	fmt.Fprintf(w, "%s: %s\n", bold("ETH Value"), value)
 	fmt.Fprintf(w, "%s: %d\n", bold("Nonce"), tx.Nonce)
-	fmt.Fprintf(w, "%s: %d\n", bold("Operation"), tx.Operation)
+	fmt.Fprintf(w, "%s: %s\n", bold("Operation"), operation)
 	fmt.Fprintln(w, "")
 
 	// Print call details

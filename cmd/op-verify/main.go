@@ -7,7 +7,7 @@ import (
 
 	"github.com/ethereum-optimism/op-verify/core"
 	"github.com/ethereum-optimism/op-verify/output"
-	"github.com/urfave/cli/v2"
+	cli "github.com/urfave/cli/v2"
 )
 
 func main() {
