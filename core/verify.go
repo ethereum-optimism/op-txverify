@@ -1,9 +1,7 @@
 package core
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -48,25 +46,8 @@ type VerifyOptions struct {
 	Verbose bool
 }
 
-// VerifyTransactionFile verifies a Safe transaction from a file path
-func VerifyTransactionFile(filePath string, options VerifyOptions) (*VerificationResult, error) {
-	// Read the transaction file
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read transaction file: %w", err)
-	}
-
-	return VerifyTransaction(data, options)
-}
-
-// VerifyTransaction verifies a Safe transaction from JSON data
-func VerifyTransaction(txData []byte, options VerifyOptions) (*VerificationResult, error) {
-	// Parse the transaction
-	var tx SafeTransaction
-	if err := json.Unmarshal(txData, &tx); err != nil {
-		return nil, fmt.Errorf("failed to parse transaction: %w", err)
-	}
-
+// VerifyTransaction verifies a Safe transaction
+func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*VerificationResult, error) {
 	// Strip chain prefix from the target address (e.g., "oeth:", "eth:")
 	tx.To = stripChainPrefix(tx.To)
 	tx.Safe = stripChainPrefix(tx.Safe)

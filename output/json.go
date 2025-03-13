@@ -2,14 +2,16 @@ package output
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
-
-	"github.com/ethereum-optimism/op-verify/core"
 )
 
 // FormatJSON outputs the verification result as JSON
-func FormatJSON(result *core.VerificationResult, w io.Writer) error {
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(result)
+func FormatJSON(data interface{}, writer io.Writer) error {
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error formatting JSON: %w", err)
+	}
+	_, err = writer.Write(jsonData)
+	return err
 }

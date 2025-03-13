@@ -36,19 +36,18 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 		return &CallData{
 			Target:       to,
 			TargetName:   targetName,
-			FunctionName: "transfer",
-			ParsedData: map[string]interface{}{
-				"value": "0",
-			},
+			FunctionName: "unknown",
+			RawData:      "0x" + data,
 		}, nil
 	}
 
 	// Extract function selector (first 4 bytes)
 	if len(cleanData) < 8 {
 		return &CallData{
-			Target:     to,
-			TargetName: targetName,
-			RawData:    data,
+			Target:       to,
+			TargetName:   targetName,
+			FunctionName: "unknown",
+			RawData:      data,
 		}, nil
 	}
 
