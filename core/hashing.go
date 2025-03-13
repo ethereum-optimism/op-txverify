@@ -129,3 +129,33 @@ func CalculateMessageHash(tx SafeTransaction) (string, error) {
 	hash := crypto.Keccak256Hash(packed)
 	return hash.Hex(), nil
 }
+
+// CalculateApproveHash calculates the EIP-712 approve hash for a Safe transaction
+func CalculateApproveHash(tx SafeTransaction) (string, error) {
+	// First calculate domain hash
+	domainHash, err := CalculateDomainHash(tx)
+	if err != nil {
+		return "", err
+	}
+
+	// Then calculate message hash
+	messageHash, err := CalculateMessageHash(tx)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert hex strings to byte arrays
+	domainHashBytes := common.HexToHash(domainHash)
+	messageHashBytes := common.HexToHash(messageHash)
+
+	// Create the EIP-712 prefix: 0x1901
+	prefix := []byte{0x19, 0x01}
+
+	// Concatenate all components
+	concatData := append(prefix, domainHashBytes.Bytes()...)
+	concatData = append(concatData, messageHashBytes.Bytes()...)
+
+	// Calculate final hash
+	hash := crypto.Keccak256Hash(concatData)
+	return hash.Hex(), nil
+}

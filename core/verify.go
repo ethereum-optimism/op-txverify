@@ -10,6 +10,7 @@ type VerificationResult struct {
 	Transaction SafeTransaction `json:"transaction"`
 	DomainHash  string          `json:"domainHash"`
 	MessageHash string          `json:"messageHash"`
+	ApproveHash string          `json:"approveHash"`
 	Call        CallData        `json:"call"`
 }
 
@@ -70,11 +71,17 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 		return nil, fmt.Errorf("failed to calculate message hash: %w", err)
 	}
 
+	approveHash, err := CalculateApproveHash(tx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate approve hash: %w", err)
+	}
+
 	// Create the verification result
 	result := &VerificationResult{
 		Transaction: tx,
 		DomainHash:  domainHash,
 		MessageHash: messageHash,
+		ApproveHash: approveHash,
 		Call:        *call,
 	}
 

@@ -75,8 +75,9 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	// Print hashes
 	fmt.Fprintln(w, heading("HASHES"))
 	fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-	fmt.Fprintf(w, "%s: %s\n", label(bold("Domain Hash")), result.DomainHash)
+	fmt.Fprintf(w, "%s:  %s\n", label(bold("Domain Hash")), result.DomainHash)
 	fmt.Fprintf(w, "%s: %s\n", label(bold("Message Hash")), result.MessageHash)
+	fmt.Fprintf(w, "%s: %s\n", label(bold("Safe Tx Hash")), result.ApproveHash)
 	fmt.Fprintln(w, "")
 
 	// Print verification instructions
