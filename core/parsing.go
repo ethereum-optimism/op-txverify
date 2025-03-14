@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"math/big"
 	"strings"
 
@@ -168,10 +167,6 @@ func parseArguments(method abi.Method, calldata string) (map[string]interface{},
 		if name == "" {
 			name = fmt.Sprintf("arg%d", i)
 		}
-
-		log.Printf("%s: %v", name, arg)
-		// print the type of arg?
-		log.Printf("%T", arg)
 
 		// Convert byte arrays and fixed-size uint8 arrays to hex strings for better readability
 		if byteArray, ok := arg.([]byte); ok {

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>op-verify writer</title>
+    <style>
+        /* Base styles */
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            text-align: center; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #ffffff;
+            color: #111111;
+        }
+        
+        /* Layout */
+        .container { 
+            max-width: 640px; 
+            margin: 0 auto;
+            background-color: white;
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        
+        /* Chunk visualization */
+        .chunks-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px;
+            margin: 20px auto;
+            max-width: 600px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 12px;
+        }
+        
+        .chunk-indicator {
+            width: 28px;
+            height: 28px;
+            background-color: #e0e0e0;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            margin: 3px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: #333333;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .chunk-indicator.received {
+            background-color: #FF0420;
+            color: white;
+            transform: scale(1.05);
+        }
+        
+        .chunk-indicator.latest {
+            background-color: #FF0420;
+            color: white;
+            animation: pulse 250ms 1 ease-in-out;
+            box-shadow: 0 0 8px rgba(255, 4, 32, 0.5);
+        }
+        
+        .chunk-indicator.rescanned {
+            background-color: #FF0420;
+            color: white;
+            animation: pulse 250ms 1 ease-in-out;
+            box-shadow: 0 0 8px rgba(255, 4, 32, 0.5);
+        }
+        
+        /* Loading indicator */
+        .loading-indicator {
+            width: 100%;
+            height: 8px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .loading-indicator::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 30%;
+            background-color: #FF0420;
+            border-radius: 4px;
+            animation: loading 1.5s infinite ease-in-out;
+        }
+        
+        /* Camera container */
+        #scanbot-camera-container {
+            width: 100%;
+            height: 400px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        
+        /* Scan animation */
+        .scan-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(to right, transparent, #FF0420, transparent);
+            animation: scan 2s linear infinite;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        /* Animations */
+        @keyframes loading {
+            0% { left: -30%; }
+            100% { left: 100%; }
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1.05); }
+            50% { transform: scale(1.15); }
+            100% { transform: scale(1.05); }
+        }
+        
+        @keyframes scan {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+    </style>
+    <!-- External libraries -->
+    <script src="/lib/scanbot/ScanbotSDK.ui2.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div id="scanbot-camera-container">
+            <div class="scan-line"></div>
+        </div>
+        <div id="chunks-container" class="chunks-container"></div>
+    </div>
+
+    <script>
+        /**
+         * QR Code Reader Application
+         * 
+         * This script handles scanning QR codes to receive and reassemble chunked data.
+         * It uses the Scanbot SDK for QR code scanning and Web Crypto API for verification.
+         */
+        
+        // Configuration constants
+        const CONFIG = {
+            LICENSE_KEY: "", // Replace with your Scanbot license key if you have one
+            ENGINE_PATH: "/lib/scanbot/engine/"
+        };
+        
+        // DOM element references
+        const DOM = {
+            chunksContainer: document.getElementById('chunks-container'),
+            cameraContainer: document.getElementById('scanbot-camera-container')
+        };
+        
+        // Application state
+        const state = {
+            transferId: null,
+            receivedParts: {},
+            totalParts: 0,
+            lastScanned: "",
+            scanbotSDK: null,
+            barcodeScanner: null,
+            fullData: null,
+            expectedFullChecksum: null,
+            latestReceivedPart: null
+        };
+        
+        /**
+         * Utility Functions
+         */
+        
+        // Calculate SHA-256 hash using Web Crypto API
+        async function calculateSHA256(str) {
+            // Convert string to ArrayBuffer
+            const encoder = new TextEncoder();
+            const data = encoder.encode(str);
+            
+            // Calculate hash
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            
+            // Convert to hex string
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            
+            return hashHex;
+        }
+        
+        /**
+         * Initialization Functions
+         */
+        
+        // Initialize the Scanbot SDK
+        async function initializeScanner() {
+            try {
+                // Initialize the SDK
+                state.scanbotSDK = await ScanbotSDK.initialize({
+                    licenseKey: CONFIG.LICENSE_KEY,
+                    enginePath: CONFIG.ENGINE_PATH,
+                });
+                
+                // Create a barcode scanner
+                state.barcodeScanner = await state.scanbotSDK.createBarcodeScanner({
+                    containerId: "scanbot-camera-container",
+                    onBarcodesDetected: handleBarcodesDetected,
+                    barcodeFormats: ["QR_CODE"],
+                    preferredCamera: "environment",
+                    captureDelay: 10,
+                    userGuidance: {
+                        visible: false
+                    }
+                });
+            } catch (error) {
+                console.error("Error initializing Scanbot SDK:", error);
+            }
+        }
+        
+        /**
+         * UI Functions
+         */
+        
+        // Show loading indicator
+        function showLoadingIndicator() {
+            DOM.chunksContainer.innerHTML = '';
+            const loadingIndicator = document.createElement('div');
+            loadingIndicator.className = 'loading-indicator';
+            DOM.chunksContainer.appendChild(loadingIndicator);
+        }
+        
+        // Create visual indicators for chunks
+        function createChunkIndicators(count) {
+            DOM.chunksContainer.innerHTML = '';
+            for (let i = 1; i <= count; i++) {
+                const indicator = document.createElement('div');
+                indicator.className = 'chunk-indicator';
+                indicator.dataset.part = i;
+                indicator.textContent = i;
+                DOM.chunksContainer.appendChild(indicator);
+            }
+        }
+        
+        // Update chunk indicators based on received parts
+        function updateChunkIndicators(isRescan = false) {
+            const indicators = DOM.chunksContainer.querySelectorAll('.chunk-indicator');
+            
+            indicators.forEach(indicator => {
+                const part = parseInt(indicator.dataset.part);
+                
+                // Remove any previous "latest" or "rescanned" class
+                indicator.classList.remove('latest');
+                indicator.classList.remove('rescanned');
+                
+                // Mark received parts
+                if (state.receivedParts[part]) {
+                    indicator.classList.add('received');
+                    
+                    // Mark the latest received part
+                    if (part === state.latestReceivedPart) {
+                        // If this is a rescan, use the rescanned class instead of latest
+                        if (isRescan) {
+                            indicator.classList.add('rescanned');
+                        } else {
+                            indicator.classList.add('latest');
+                        }
+                    }
+                }
+            });
+        }
+        
+        /**
+         * Data Processing Functions
+         */
+        
+        // Handle detected barcodes
+        async function handleBarcodesDetected(result) {
+            if (!result.barcodes || result.barcodes.length === 0) return;
+            
+            // Get the first detected QR code
+            const barcode = result.barcodes[0];
+            const decodedText = barcode.text;
+            
+            // Skip if this is the same QR code we just processed
+            if (decodedText === state.lastScanned) return;
+            
+            state.lastScanned = decodedText;
+
+            console.log("QR Code detected:", decodedText);
+            
+            try {
+                // Parse the QR code data
+                const qrData = JSON.parse(decodedText);
+                
+                // Validate the QR code format
+                if (!qrData.id || !qrData.part || !qrData.total || !qrData.data || 
+                    !qrData.checksum || !qrData.fullChecksum) {
+                    return;
+                }
+                
+                // Set transfer ID if this is the first part we're seeing
+                if (!state.transferId) {
+                    state.transferId = qrData.id;
+                    state.totalParts = qrData.total;
+                    state.expectedFullChecksum = qrData.fullChecksum;
+                    // Create chunk indicators when we first learn how many parts there are
+                    createChunkIndicators(state.totalParts);
+                } else if (state.transferId !== qrData.id) {
+                    resetTransfer();
+                    state.transferId = qrData.id;
+                    state.totalParts = qrData.total;
+                    state.expectedFullChecksum = qrData.fullChecksum;
+                    // Create new chunk indicators for the new transfer
+                    createChunkIndicators(state.totalParts);
+                }
+                
+                // Verify the part's checksum
+                const calculatedChecksum = await calculateSHA256(qrData.data);
+                if (calculatedChecksum !== qrData.checksum) {
+                    return;
+                }
+                
+                // Store the part if we don't have it yet
+                if (!state.receivedParts[qrData.part]) {
+                    state.receivedParts[qrData.part] = qrData.data;
+                    state.latestReceivedPart = qrData.part;
+                    
+                    // Update chunk indicators
+                    updateChunkIndicators();
+                    
+                    // Check if we have all parts
+                    const receivedCount = Object.keys(state.receivedParts).length;
+                    if (receivedCount === state.totalParts) {
+                        await assembleAndVerifyData();
+                    }
+                } else {
+                    // We already have this part, but we'll highlight it as rescanned
+                    state.latestReceivedPart = qrData.part;
+                    updateChunkIndicators(true); // Pass true to indicate this is a rescan
+                }
+            } catch (error) {
+                console.error("Error processing QR code:", error);
+            }
+        }
+        
+        // Assemble and verify the complete data
+        async function assembleAndVerifyData() {
+            // Assemble the data in the correct order
+            const orderedParts = [];
+            for (let i = 1; i <= state.totalParts; i++) {
+                if (!state.receivedParts[i]) {
+                    return;
+                }
+                orderedParts.push(state.receivedParts[i]);
+            }
+            
+            // Combine all parts
+            const combinedData = orderedParts.join('');
+            
+            // Verify the full data checksum
+            const calculatedFullChecksum = await calculateSHA256(combinedData);
+            if (calculatedFullChecksum !== state.expectedFullChecksum) {
+                return;
+            }
+            
+            // Data is valid, decode from base64
+            try {
+                state.fullData = atob(combinedData);
+                
+                // Send the result to the server
+                sendResultToServer(state.fullData);
+                
+                // Stop the scanner
+                if (state.barcodeScanner) {
+                    state.barcodeScanner.dispose();
+                }
+            } catch (error) {
+                console.error("Error decoding data:", error);
+            }
+        }
+        
+        // Send the assembled data to the server
+        function sendResultToServer(data) {
+            fetch('/result', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'data=' + encodeURIComponent(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    setTimeout(() => window.close(), 1000);
+                } else {
+                    console.error('Server error:', data.message || 'Unknown error');
+                }
+            })
+            .catch(err => {
+                console.error('Error sending result:', err);
+            });
+        }
+        
+        // Reset the transfer state
+        function resetTransfer() {
+            state.transferId = null;
+            state.receivedParts = {};
+            state.totalParts = 0;
+            state.fullData = null;
+            state.expectedFullChecksum = null;
+            state.latestReceivedPart = null;
+            showLoadingIndicator(); // Show loading indicator instead of placeholder chunks
+        }
+        
+        /**
+         * Event Handlers
+         */
+        
+        // Initialize the scanner when the page loads
+        window.addEventListener('DOMContentLoaded', initializeScanner);
+        
+        // Clean up when the page is closed
+        window.addEventListener('beforeunload', () => {
+            if (state.barcodeScanner) {
+                state.barcodeScanner.dispose();
+            }
+        });
+        
+        // Show loading indicator on initial load
+        showLoadingIndicator();
+    </script>
+</body>
+</html>

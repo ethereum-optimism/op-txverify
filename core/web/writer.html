@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>op-verify writer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        /* Base styles */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            background-color: #ffffff;
+            color: #111111;
+        }
+        
+        /* Layout */
+        .container {
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            box-sizing: border-box;
+        }
+        
+        /* Typography */
+        .status {
+            margin: 15px 0;
+            font-weight: 600;
+            color: #333333;
+        }
+        
+        /* Form elements */
+        textarea {
+            width: 100%;
+            height: 120px;
+            margin: 10px 0;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            font-family: monospace;
+            box-sizing: border-box;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            font-size: 16px;
+        }
+        
+        button {
+            background-color: #FF0420;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 15px 2px;
+            cursor: pointer;
+            border-radius: 50px;
+            width: 100%;
+            max-width: 250px;
+            transition: all 0.2s ease;
+        }
+        
+        button:hover {
+            background-color: #e00319;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255,4,32,0.2);
+        }
+        
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        /* QR code display */
+        .qr-container {
+            position: relative;
+            width: 90%;
+            max-width: 300px;
+            height: auto;
+            aspect-ratio: 1/1;
+            margin: 20px auto;
+            background-color: white;
+            border-radius: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        
+        #qrcode {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #qrcode img {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        
+        .qr-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.9);
+            z-index: 10;
+            border-radius: 16px;
+        }
+        
+        /* Progress bar */
+        .qr-overlay progress {
+            width: 80%;
+            height: 8px;
+            margin-top: 15px;
+            border: none;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .qr-overlay progress::-webkit-progress-bar {
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        
+        .qr-overlay progress::-webkit-progress-value {
+            background-color: #FF0420;
+            border-radius: 4px;
+        }
+        
+        .qr-overlay progress::-moz-progress-bar {
+            background-color: #FF0420;
+            border-radius: 4px;
+        }
+        
+        /* Chunk visualization */
+        .chunks-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px;
+            margin: 20px auto;
+            max-width: 600px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 12px;
+        }
+        
+        .chunk-indicator {
+            width: 28px;
+            height: 28px;
+            background-color: #e0e0e0;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            margin: 3px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: #333333;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .chunk-indicator.current {
+            background-color: #FF0420;
+            color: white;
+            animation: pulse 1s infinite;
+            box-shadow: 0 0 8px rgba(255, 4, 32, 0.5);
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1.05); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(1.05); opacity: 0.8; }
+        }
+        
+        /* Responsive design */
+        @media (min-width: 768px) {
+            body {
+                padding: 30px;
+            }
+            .container {
+                padding: 30px;
+            }
+            h1 {
+                font-size: 36px;
+            }
+            p {
+                font-size: 18px;
+            }
+            textarea {
+                height: 150px;
+            }
+            button {
+                width: auto;
+            }
+            .chunk-indicator {
+                width: 32px;
+                height: 32px;
+                font-size: 14px;
+            }
+        }
+    </style>
+    <!-- External libraries -->
+    <script src="/lib/qrcode/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="qr-container">
+            <div id="qrcode"></div>
+            <div id="qrOverlay" class="qr-overlay" style="display: none;">
+                <div>Generating QR Codes...</div>
+                <progress id="generateProgress" value="0" max="100"></progress>
+            </div>
+        </div>
+
+        <div class="chunks-container" id="chunksContainer"></div>
+
+        <div class="status" id="status">Enter data and click Start Display</div>
+
+        <textarea id="jsonInput" placeholder="Paste your JSON data here..."></textarea>
+        
+        <button id="startBtn">Start Display</button>
+    </div>
+    
+    <script>
+        /**
+         * QR Code Generator Application
+         * 
+         * This script handles the generation and display of QR codes for data transfer.
+         * It splits large JSON data into chunks and displays them sequentially.
+         */
+        
+        // Configuration constants
+        const CONFIG = {
+            CHUNK_SIZE: 1000,       // Size of each data chunk in characters
+            DISPLAY_TIME: 250,      // Time to display each QR code in ms
+            ERROR_CORRECTION: 'L'   // QR code error correction level
+        };
+        
+        // DOM element references
+        const DOM = {
+            jsonInput: document.getElementById('jsonInput'),
+            startBtn: document.getElementById('startBtn'),
+            status: document.getElementById('status'),
+            qrcodeDiv: document.getElementById('qrcode'),
+            qrOverlay: document.getElementById('qrOverlay'),
+            generateProgress: document.getElementById('generateProgress'),
+            chunksContainer: document.getElementById('chunksContainer')
+        };
+        
+        // Application state
+        const state = {
+            chunks: [],
+            currentChunkIndex: 0,
+            displayInterval: null,
+            transferId: null,
+            qrCodeImages: [],
+            displayedChunks: new Set()
+        };
+        
+        /**
+         * Utility Functions
+         */
+        
+        // Generate a unique transfer ID
+        function generateTransferId() {
+            return 'transfer-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+        }
+
+        // Split data into chunks of specified size
+        function splitIntoChunks(data, chunkSize) {
+            const chunks = [];
+            for (let i = 0; i < data.length; i += chunkSize) {
+                chunks.push(data.substring(i, i + chunkSize));
+            }
+            return chunks;
+        }
+        
+        // Calculate SHA-256 hash using Web Crypto API
+        async function calculateSHA256(str) {
+            // Convert string to ArrayBuffer
+            const encoder = new TextEncoder();
+            const data = encoder.encode(str);
+            
+            // Calculate hash
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            
+            // Convert to hex string
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            
+            return hashHex;
+        }
+        
+        // Stop any ongoing QR code display
+        function stopDisplay() {
+            if (state.displayInterval) {
+                clearInterval(state.displayInterval);
+                state.displayInterval = null;
+            }
+        }
+        
+        /**
+         * UI Functions
+         */
+        
+        // Create visual indicators for chunks
+        function createChunkIndicators(count) {
+            DOM.chunksContainer.innerHTML = '';
+            for (let i = 0; i < count; i++) {
+                const indicator = document.createElement('div');
+                indicator.className = 'chunk-indicator';
+                indicator.dataset.index = i;
+                indicator.textContent = i + 1;
+                DOM.chunksContainer.appendChild(indicator);
+            }
+        }
+        
+        // Update chunk indicators to show progress
+        function updateChunkIndicators(currentIndex) {
+            // Mark current chunk as displayed
+            state.displayedChunks.add(currentIndex);
+            
+            // Update all indicators
+            const indicators = DOM.chunksContainer.querySelectorAll('.chunk-indicator');
+            indicators.forEach((indicator, index) => {
+                indicator.classList.remove('current');
+                
+                if (index === currentIndex) {
+                    indicator.classList.add('current');
+                }
+            });
+        }
+        
+        // Display a QR code at the specified index
+        function displayQRCode(index) {
+            if (!state.chunks || index >= state.chunks.length) return;
+            
+            // Clear previous QR code
+            DOM.qrcodeDiv.innerHTML = '';
+            
+            // Create image element
+            const img = document.createElement('img');
+            img.src = state.qrCodeImages[index];
+            img.style.maxWidth = '100%';
+            img.style.maxHeight = '100%';
+            DOM.qrcodeDiv.appendChild(img);
+            
+            // Update chunk indicators
+            updateChunkIndicators(index);
+        }
+        
+        /**
+         * Core Application Logic
+         */
+        
+        // Generate QR codes from JSON input
+        async function generateQRCodes(jsonData) {
+            // Convert to base64
+            const base64Data = btoa(jsonData);
+            
+            // Calculate full data checksum
+            const fullChecksum = await calculateSHA256(base64Data);
+            
+            // Generate a new transfer ID
+            state.transferId = generateTransferId();
+            
+            // Split into chunks
+            const dataChunks = splitIntoChunks(base64Data, CONFIG.CHUNK_SIZE);
+            
+            // Create QR code data for each chunk
+            state.chunks = [];
+            for (let i = 0; i < dataChunks.length; i++) {
+                const chunk = dataChunks[i];
+                const chunkChecksum = await calculateSHA256(chunk);
+                state.chunks.push({
+                    id: state.transferId,
+                    part: i + 1,
+                    total: dataChunks.length,
+                    data: chunk,
+                    checksum: chunkChecksum,
+                    fullChecksum: fullChecksum
+                });
+            }
+            
+            // Reset displayed chunks
+            state.displayedChunks = new Set();
+            
+            // Create chunk indicators
+            createChunkIndicators(state.chunks.length);
+            
+            // Generate all QR codes in advance
+            state.qrCodeImages = [];
+            
+            for (let i = 0; i < state.chunks.length; i++) {
+                const chunk = state.chunks[i];
+                const qrData = JSON.stringify(chunk);
+                
+                // Update progress
+                DOM.generateProgress.value = (i / state.chunks.length) * 100;
+                
+                // Generate QR code as data URL
+                const dataUrl = await new Promise((resolve, reject) => {
+                    QRCode.toDataURL(qrData, {
+                        errorCorrectionLevel: CONFIG.ERROR_CORRECTION,
+                        margin: 1,
+                        width: 300
+                    }, (err, url) => {
+                        if (err) reject(err);
+                        else resolve(url);
+                    });
+                });
+                
+                state.qrCodeImages.push(dataUrl);
+                
+                // Small delay to allow UI to update
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+        }
+        
+        // Start displaying QR codes
+        function startQRCodeDisplay() {
+            // Display info
+            DOM.status.textContent = `Displaying ${state.chunks.length} QR codes...`;
+            
+            // Start displaying QR codes
+            state.currentChunkIndex = 0;
+            displayQRCode(state.currentChunkIndex);
+            
+            // Set up interval to rotate through QR codes
+            state.displayInterval = setInterval(function() {
+                state.currentChunkIndex = (state.currentChunkIndex + 1) % state.chunks.length;
+                displayQRCode(state.currentChunkIndex);
+            }, CONFIG.DISPLAY_TIME);
+        }
+        
+        /**
+         * Event Handlers
+         */
+        
+        // Start button click handler
+        DOM.startBtn.addEventListener('click', async function() {
+            // Stop any ongoing display
+            stopDisplay();
+
+            try {
+                // Validate JSON
+                const jsonData = DOM.jsonInput.value.trim();
+                if (!jsonData) {
+                    DOM.status.textContent = "Please enter JSON data";
+                    return;
+                }
+                
+                // Try to parse the JSON to validate it
+                try {
+                    JSON.parse(jsonData);
+                } catch (e) {
+                    DOM.status.textContent = "Invalid JSON format: " + e.message;
+                    return;
+                }
+                
+                // Show overlay with progress
+                DOM.qrOverlay.style.display = 'flex';
+                DOM.generateProgress.value = 0;
+                
+                // Disable button during generation
+                DOM.startBtn.disabled = true;
+                
+                // Generate QR codes
+                await generateQRCodes(jsonData);
+                
+                // Hide overlay
+                DOM.qrOverlay.style.display = 'none';
+                
+                // Enable button
+                DOM.startBtn.disabled = false;
+                
+                // Start displaying QR codes
+                startQRCodeDisplay();
+                
+            } catch (error) {
+                console.error("Error generating QR codes:", error);
+                DOM.status.textContent = "Error: " + error.message;
+                DOM.qrOverlay.style.display = 'none';
+                DOM.startBtn.disabled = false;
+            }
+        });
+        
+        // Clean up when the page is closed
+        window.addEventListener('beforeunload', stopDisplay);
+    </script>
+</body>
+</html>

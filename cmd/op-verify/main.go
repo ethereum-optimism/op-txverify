@@ -103,6 +103,30 @@ func main() {
 				},
 				Action: downloadAction,
 			},
+			{
+				Name:  "qr",
+				Usage: "Scan a transaction QR code using your camera",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "device",
+						Aliases: []string{"d"},
+						Usage:   "Camera device to use (defaults to system default)",
+						Value:   "",
+					},
+					&cli.StringFlag{
+						Name:    "output",
+						Aliases: []string{"o"},
+						Usage:   "Output format: terminal, json",
+						Value:   "terminal",
+					},
+					&cli.BoolFlag{
+						Name:    "verbose",
+						Aliases: []string{"v"},
+						Usage:   "Show verbose output",
+					},
+				},
+				Action: qrAction,
+			},
 		},
 	}
 
@@ -227,4 +251,45 @@ func downloadAction(c *cli.Context) error {
 
 	// Output to stdout if no file specified
 	return output.FormatJSON(tx, os.Stdout)
+}
+
+func qrAction(c *cli.Context) error {
+	deviceID := c.String("device")
+	outputFormat := c.String("output")
+	verbose := c.Bool("verbose")
+
+	// Scan QR code from camera
+	data, err := core.ScanQRCode(deviceID)
+	if err != nil {
+		return fmt.Errorf("failed to scan QR code: %w", err)
+	}
+
+	// Parse the transaction
+	var tx core.SafeTransaction
+	if err := json.Unmarshal([]byte(data), &tx); err != nil {
+		return fmt.Errorf("failed to parse transaction from QR code: %w", err)
+	}
+
+	// Set verification options
+	options := core.VerifyOptions{
+		Verbose: verbose,
+	}
+
+	// Verify the transaction
+	result, err := core.VerifyTransaction(tx, options)
+	if err != nil {
+		return fmt.Errorf("error verifying transaction: %w", err)
+	}
+
+	// Output the result in the requested format
+	switch outputFormat {
+	case "json":
+		output.FormatJSON(result, os.Stdout)
+	case "terminal":
+		output.FormatTerminal(result, os.Stdout)
+	default:
+		return fmt.Errorf("unknown output format: %s", outputFormat)
+	}
+
+	return nil
 }
