@@ -9,101 +9,49 @@
             text-align: center; 
             margin: 0; 
             padding: 20px; 
-            background-color: #ffffff;
-            color: #111111;
+            background-color: #121212;
+            color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
         }
         
         /* Layout */
         .container { 
-            max-width: 640px; 
+            width: 700px; /* Increased from max-width: 640px */
             margin: 0 auto;
-            background-color: white;
+            background-color: #1e1e1e;
             padding: 25px;
             border-radius: 16px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            position: relative;
         }
         
-        /* Chunk visualization */
-        .chunks-container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 6px;
-            margin: 20px auto;
-            max-width: 600px;
-            padding: 10px;
-            background-color: #f5f5f5;
-            border-radius: 12px;
-        }
-        
-        .chunk-indicator {
-            width: 28px;
-            height: 28px;
-            background-color: #e0e0e0;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-            margin: 3px;
+        /* Shards container */
+        .shards-container {
+            position: relative;
+            width: 650px; /* Increased from 500px */
+            height: 650px; /* Increased from 500px */
+            margin: 0 auto;
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 12px;
-            font-weight: 600;
-            color: #333333;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         
-        .chunk-indicator.received {
-            background-color: #FF0420;
-            color: white;
-            transform: scale(1.05);
-        }
-        
-        .chunk-indicator.latest {
-            background-color: #FF0420;
-            color: white;
-            animation: pulse 250ms 1 ease-in-out;
-            box-shadow: 0 0 8px rgba(255, 4, 32, 0.5);
-        }
-        
-        .chunk-indicator.rescanned {
-            background-color: #FF0420;
-            color: white;
-            animation: pulse 250ms 1 ease-in-out;
-            box-shadow: 0 0 8px rgba(255, 4, 32, 0.5);
-        }
-        
-        /* Loading indicator */
-        .loading-indicator {
-            width: 100%;
-            height: 8px;
-            background-color: #f0f0f0;
-            border-radius: 4px;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .loading-indicator::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            height: 100%;
-            width: 30%;
-            background-color: #FF0420;
-            border-radius: 4px;
-            animation: loading 1.5s infinite ease-in-out;
-        }
-        
-        /* Camera container */
+        /* Circular scanner container */
         #scanbot-camera-container {
-            width: 100%;
-            height: 400px;
-            position: relative;
+            width: 420px;
+            height: 420px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             overflow: hidden;
-            border: 1px solid #e0e0e0;
-            border-radius: 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            margin-bottom: 20px;
+            border-radius: 50%;
+            border: 4px solid #FF0420;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1;
         }
         
         /* Scan animation */
@@ -117,21 +65,89 @@
             pointer-events: none;
         }
         
-        /* Animations */
-        @keyframes loading {
-            0% { left: -30%; }
-            100% { left: 100%; }
+        /* Scanner glow effect */
+        .scanner-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 420px;  /* Match the camera container size */
+            height: 420px; /* Match the camera container size */
+            border-radius: 50%;
+            box-shadow: 0 0 60px rgba(255, 4, 32, 0.4); /* Increased shadow size instead of element size */
+            animation: pulse-glow 2s infinite ease-in-out;
+            z-index: 0;
         }
         
+        .scanner-glow.active {
+            opacity: 1;
+        }
+        
+        /* Solid red circle that replaces scanner after completion */
+        .completion-circle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 424px;
+            height: 424px;
+            border-radius: 50%;
+            background-color: #FF0420;
+            z-index: 2;
+            display: none;
+        }
+        
+        /* Individual shard */
+        .shard {
+            position: absolute;
+            width: 90px;
+            height: 100px;
+            background-color: #333333;
+            clip-path: polygon(50% 0, 90% 50%, 50% 100%, 10% 50%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: transparent;
+            z-index: 0;
+            transform-origin: center;
+            transition: left 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+                        top 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+                        background-color 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+                        color 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        
+        .shard.received {
+            background-color: #FF0420;
+            color: white;
+            box-shadow: 0 4px 8px rgba(255, 4, 32, 0.3);
+        }
+        
+        .shard.latest {
+            animation: pulse 250ms 1 ease-in-out;
+            box-shadow: 0 0 15px rgba(255, 4, 32, 0.6);
+        }
+        
+        .shard.rescanned {
+            animation: pulse 250ms 1 ease-in-out;
+            box-shadow: 0 0 15px rgba(255, 4, 32, 0.6);
+        }
+        
+        /* Animations */
         @keyframes pulse {
-            0% { transform: scale(1.05); }
-            50% { transform: scale(1.15); }
-            100% { transform: scale(1.05); }
+            0% { transform: rotate(var(--rotation-angle)) scale(1); }
+            50% { transform: rotate(var(--rotation-angle)) scale(1.15); }
+            100% { transform: rotate(var(--rotation-angle)) scale(1); }
         }
         
         @keyframes scan {
             0% { top: 0; }
             100% { top: 100%; }
+        }
+        
+        @keyframes pulse-glow {
+            0% { opacity: 0.3; box-shadow: 0 0 40px rgba(255, 4, 32, 0.3); }
+            50% { opacity: 0.9; box-shadow: 0 0 60px rgba(255, 4, 32, 0.5); } /* Much larger glow */
+            100% { opacity: 0.3; box-shadow: 0 0 40px rgba(255, 4, 32, 0.3); }
         }
     </style>
     <!-- External libraries -->
@@ -139,10 +155,14 @@
 </head>
 <body>
     <div class="container">
-        <div id="scanbot-camera-container">
-            <div class="scan-line"></div>
+        <div class="shards-container">
+            <div id="scanbot-camera-container">
+                <div class="scan-line"></div>
+            </div>
+            <div class="scanner-glow"></div>
+            <div class="completion-circle"></div>
+            <div id="shards-container"></div>
         </div>
-        <div id="chunks-container" class="chunks-container"></div>
     </div>
 
     <script>
@@ -161,8 +181,10 @@
         
         // DOM element references
         const DOM = {
-            chunksContainer: document.getElementById('chunks-container'),
-            cameraContainer: document.getElementById('scanbot-camera-container')
+            shardsContainer: document.getElementById('shards-container'),
+            cameraContainer: document.getElementById('scanbot-camera-container'),
+            scannerGlow: document.querySelector('.scanner-glow'),
+            completionCircle: document.querySelector('.completion-circle')
         };
         
         // Application state
@@ -231,50 +253,96 @@
          * UI Functions
          */
         
-        // Show loading indicator
-        function showLoadingIndicator() {
-            DOM.chunksContainer.innerHTML = '';
-            const loadingIndicator = document.createElement('div');
-            loadingIndicator.className = 'loading-indicator';
-            DOM.chunksContainer.appendChild(loadingIndicator);
-        }
-        
-        // Create visual indicators for chunks
-        function createChunkIndicators(count) {
-            DOM.chunksContainer.innerHTML = '';
+        // Create visual shard indicators for chunks
+        function createShardIndicators(count) {
+            DOM.shardsContainer.innerHTML = '';
+            
+            // Calculate positions in a circle around the scanner
+            const radius = 280;
+            const centerX = 325;
+            const centerY = 325;
+            
             for (let i = 1; i <= count; i++) {
-                const indicator = document.createElement('div');
-                indicator.className = 'chunk-indicator';
-                indicator.dataset.part = i;
-                indicator.textContent = i;
-                DOM.chunksContainer.appendChild(indicator);
+                const angle = ((i - 1) / count) * 2 * Math.PI;
+                const x = centerX + radius * Math.cos(angle) - 45;
+                const y = centerY + radius * Math.sin(angle) - 50;
+                
+                const shard = document.createElement('div');
+                shard.className = 'shard';
+                shard.dataset.part = i;
+                shard.dataset.angle = angle; // Store the angle for later use
+                shard.style.left = `${x}px`;
+                shard.style.top = `${y}px`;
+                
+                // Rotate the shard to point toward the center
+                const rotationDeg = (angle * 180 / Math.PI) + 90;
+                shard.style.setProperty('--rotation-angle', `${rotationDeg}deg`);
+                shard.style.transform = `rotate(${rotationDeg}deg)`;
+                
+                DOM.shardsContainer.appendChild(shard);
             }
         }
         
-        // Update chunk indicators based on received parts
-        function updateChunkIndicators(isRescan = false) {
-            const indicators = DOM.chunksContainer.querySelectorAll('.chunk-indicator');
+        // Update shard indicators based on received parts
+        function updateShardIndicators(isRescan = false) {
+            const shards = DOM.shardsContainer.querySelectorAll('.shard');
             
-            indicators.forEach(indicator => {
-                const part = parseInt(indicator.dataset.part);
+            shards.forEach(shard => {
+                const part = parseInt(shard.dataset.part);
+                const angle = parseFloat(shard.dataset.angle);
+                
+                // Calculate the rotation (same for all states)
+                const rotationDeg = (angle * 180 / Math.PI) + 90;
+                
+                // Set the rotation as a CSS variable for use in animations
+                shard.style.setProperty('--rotation-angle', `${rotationDeg}deg`);
+                
+                // Apply rotation immediately without transition
+                shard.style.transform = `rotate(${rotationDeg}deg)`;
                 
                 // Remove any previous "latest" or "rescanned" class
-                indicator.classList.remove('latest');
-                indicator.classList.remove('rescanned');
+                shard.classList.remove('latest');
+                shard.classList.remove('rescanned');
                 
                 // Mark received parts
                 if (state.receivedParts[part]) {
-                    indicator.classList.add('received');
+                    shard.classList.add('received');
+                    
+                    // Calculate positions
+                    const inwardRadius = 210;
+                    const centerX = 325;
+                    const centerY = 325;
+                    
+                    // Calculate new position (closer to center)
+                    const x = centerX + inwardRadius * Math.cos(angle) - 45;
+                    const y = centerY + inwardRadius * Math.sin(angle) - 50;
+                    
+                    // Update position to move inward
+                    shard.style.left = `${x}px`;
+                    shard.style.top = `${y}px`;
                     
                     // Mark the latest received part
                     if (part === state.latestReceivedPart) {
                         // If this is a rescan, use the rescanned class instead of latest
                         if (isRescan) {
-                            indicator.classList.add('rescanned');
+                            shard.classList.add('rescanned');
                         } else {
-                            indicator.classList.add('latest');
+                            shard.classList.add('latest');
                         }
                     }
+                } else {
+                    // Reset position for unreceived shards
+                    const radius = 280;
+                    const centerX = 325;
+                    const centerY = 325;
+                    
+                    // Calculate original position
+                    const x = centerX + radius * Math.cos(angle) - 45;
+                    const y = centerY + radius * Math.sin(angle) - 50;
+                    
+                    // Reset to original position
+                    shard.style.left = `${x}px`;
+                    shard.style.top = `${y}px`;
                 }
             });
         }
@@ -313,15 +381,15 @@
                     state.transferId = qrData.id;
                     state.totalParts = qrData.total;
                     state.expectedFullChecksum = qrData.fullChecksum;
-                    // Create chunk indicators when we first learn how many parts there are
-                    createChunkIndicators(state.totalParts);
+                    // Create shard indicators when we first learn how many parts there are
+                    createShardIndicators(state.totalParts);
                 } else if (state.transferId !== qrData.id) {
                     resetTransfer();
                     state.transferId = qrData.id;
                     state.totalParts = qrData.total;
                     state.expectedFullChecksum = qrData.fullChecksum;
-                    // Create new chunk indicators for the new transfer
-                    createChunkIndicators(state.totalParts);
+                    // Create new shard indicators for the new transfer
+                    createShardIndicators(state.totalParts);
                 }
                 
                 // Verify the part's checksum
@@ -335,8 +403,8 @@
                     state.receivedParts[qrData.part] = qrData.data;
                     state.latestReceivedPart = qrData.part;
                     
-                    // Update chunk indicators
-                    updateChunkIndicators();
+                    // Update shard indicators
+                    updateShardIndicators();
                     
                     // Check if we have all parts
                     const receivedCount = Object.keys(state.receivedParts).length;
@@ -346,7 +414,7 @@
                 } else {
                     // We already have this part, but we'll highlight it as rescanned
                     state.latestReceivedPart = qrData.part;
-                    updateChunkIndicators(true); // Pass true to indicate this is a rescan
+                    updateShardIndicators(true); // Pass true to indicate this is a rescan
                 }
             } catch (error) {
                 console.error("Error processing QR code:", error);
@@ -377,13 +445,18 @@
             try {
                 state.fullData = atob(combinedData);
                 
-                // Send the result to the server
-                sendResultToServer(state.fullData);
-                
                 // Stop the scanner
                 if (state.barcodeScanner) {
                     state.barcodeScanner.dispose();
                 }
+                
+                // Replace scanner view with solid red circle
+                DOM.cameraContainer.style.display = 'none';
+                DOM.scannerGlow.style.display = 'none';
+                DOM.completionCircle.style.display = 'block';
+                
+                // Send the result to the server
+                sendResultToServer(state.fullData);
             } catch (error) {
                 console.error("Error decoding data:", error);
             }
@@ -419,7 +492,7 @@
             state.fullData = null;
             state.expectedFullChecksum = null;
             state.latestReceivedPart = null;
-            showLoadingIndicator(); // Show loading indicator instead of placeholder chunks
+            DOM.shardsContainer.innerHTML = ''; // Clear shards
         }
         
         /**
@@ -435,9 +508,6 @@
                 state.barcodeScanner.dispose();
             }
         });
-        
-        // Show loading indicator on initial load
-        showLoadingIndicator();
     </script>
 </body>
 </html>
