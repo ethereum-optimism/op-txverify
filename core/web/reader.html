@@ -95,15 +95,26 @@
             background-color: #FF0420;
             z-index: 2;
             display: none;
+            /* Add flexbox properties to center the image */
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        /* Style for the Sunny image */
+        .sunny-image {
+            width: 300px; /* Adjust size as needed */
+            height: auto;
+            z-index: 3;
+            margin-top: 80px; /* Move the image down by 200px */
         }
         
         /* Individual shard */
         .shard {
             position: absolute;
-            width: 90px;
+            width: 100px;
             height: 100px;
-            background-color: #333333;
-            clip-path: polygon(50% 0, 90% 50%, 50% 100%, 10% 50%);
+            background-color: transparent;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -116,19 +127,32 @@
                         color 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
         
-        .shard.received {
-            background-color: #FF0420;
-            color: white;
-            box-shadow: 0 4px 8px rgba(255, 4, 32, 0.3);
+        /* Add a pseudo-element to create the diamond shape */
+        .shard::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: #333333;
+            /* Add skew to the rotation transform */
+            transform: rotate(45deg) skew(10deg, 10deg);
+            z-index: -1;
+            transition: background-color 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
         
-        .shard.latest {
-            animation: pulse 250ms 1 ease-in-out;
+        .shard.received::before {
+            background-color: #FF0420;
+        }
+        
+        .shard.received {
+            color: white;
+        }
+        
+        .shard.latest::before {
             box-shadow: 0 0 15px rgba(255, 4, 32, 0.6);
         }
         
-        .shard.rescanned {
-            animation: pulse 250ms 1 ease-in-out;
+        .shard.rescanned::before {
             box-shadow: 0 0 15px rgba(255, 4, 32, 0.6);
         }
         
@@ -149,6 +173,14 @@
             50% { opacity: 0.9; box-shadow: 0 0 60px rgba(255, 4, 32, 0.5); } /* Much larger glow */
             100% { opacity: 0.3; box-shadow: 0 0 40px rgba(255, 4, 32, 0.3); }
         }
+        
+        @keyframes bounce {
+            0% { transform: rotate(var(--rotation-angle)) translateY(0); }
+            40% { transform: rotate(var(--rotation-angle)) translateY(-15px); }
+            60% { transform: rotate(var(--rotation-angle)) translateY(-7px); }
+            80% { transform: rotate(var(--rotation-angle)) translateY(-3px); }
+            100% { transform: rotate(var(--rotation-angle)) translateY(0); }
+        }
     </style>
     <!-- External libraries -->
     <script src="/lib/scanbot/ScanbotSDK.ui2.min.js"></script>
@@ -160,7 +192,9 @@
                 <div class="scan-line"></div>
             </div>
             <div class="scanner-glow"></div>
-            <div class="completion-circle"></div>
+            <div class="completion-circle">
+                <img src="/lib/sunny.png" alt="Sunny" class="sunny-image">
+            </div>
             <div id="shards-container"></div>
         </div>
     </div>
@@ -186,7 +220,7 @@
             scannerGlow: document.querySelector('.scanner-glow'),
             completionCircle: document.querySelector('.completion-circle')
         };
-        
+
         // Application state
         const state = {
             transferId: null,
@@ -326,6 +360,14 @@
                         // If this is a rescan, use the rescanned class instead of latest
                         if (isRescan) {
                             shard.classList.add('rescanned');
+                            
+                            // Apply bounce animation for rescanned shards
+                            shard.style.animation = 'bounce 0.6s ease-out';
+                            
+                            // Remove the animation after it completes
+                            setTimeout(() => {
+                                shard.style.animation = '';
+                            }, 600);
                         } else {
                             shard.classList.add('latest');
                         }
@@ -474,7 +516,7 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    setTimeout(() => window.close(), 1000);
+                    setTimeout(() => window.close(), 3000);
                 } else {
                     console.error('Server error:', data.message || 'Unknown error');
                 }
