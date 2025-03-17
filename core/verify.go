@@ -7,11 +7,18 @@ import (
 
 // VerificationResult represents the complete output of the verification process
 type VerificationResult struct {
-	Transaction SafeTransaction `json:"transaction"`
-	DomainHash  string          `json:"domainHash"`
-	MessageHash string          `json:"messageHash"`
-	ApproveHash string          `json:"approveHash"`
-	Call        CallData        `json:"call"`
+	Transaction  SafeTransaction     `json:"transaction"`
+	DomainHash   string              `json:"domainHash"`
+	MessageHash  string              `json:"messageHash"`
+	ApproveHash  string              `json:"approveHash"`
+	Call         CallData            `json:"call"`
+	NestedResult *VerificationResult `json:"nestedResult,omitempty"`
+}
+
+// Nested represents the data about nested approve hash transactions
+type Nested struct {
+	Safe  string `json:"safe"`
+	Nonce int    `json:"nonce"`
 }
 
 // SafeTransaction represents a Gnosis Safe transaction
@@ -28,6 +35,7 @@ type SafeTransaction struct {
 	GasToken       string   `json:"gas_token"`
 	RefundReceiver string   `json:"refund_receiver"`
 	Nonce          int      `json:"nonce"`
+	Nested         *Nested  `json:"nested,omitempty"`
 	Call           CallData `json:"call"`
 }
 
@@ -49,6 +57,39 @@ type VerifyOptions struct {
 
 // VerifyTransaction verifies a Safe transaction
 func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*VerificationResult, error) {
+	// Check if this is a nested transaction
+	var nestedResult *VerificationResult
+	if tx.Nested != nil {
+		// Verify the inner transaction first
+		var err error
+		nestedResult, err = verifyTransactionInternal(tx, options)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify nested transaction: %w", err)
+		}
+
+		// Manipulate the transaction to generate the outer result
+		tx.To = tx.Safe
+		tx.Safe = tx.Nested.Safe
+		tx.Nonce = tx.Nested.Nonce
+		tx.Operation = 0
+		tx.Value = 0
+		tx.Data = "0xd4d9bdcd" + strings.TrimPrefix(nestedResult.ApproveHash, "0x")
+	}
+
+	// Verify the main transaction
+	result, err := verifyTransactionInternal(tx, options)
+	if err != nil {
+		return nil, err
+	}
+
+	// Attach nested result if it exists
+	result.NestedResult = nestedResult
+
+	return result, nil
+}
+
+// verifyTransactionInternal contains the core verification logic
+func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*VerificationResult, error) {
 	// Strip chain prefix from the target address (e.g., "oeth:", "eth:")
 	tx.To = StripChainPrefix(tx.To)
 	tx.Safe = StripChainPrefix(tx.Safe)

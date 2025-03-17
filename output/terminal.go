@@ -18,6 +18,7 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	label := color.New(color.FgMagenta).SprintFunc()
 	bold := color.New(color.Bold).SprintFunc()
 	yellow := color.New(color.FgYellow).SprintFunc()
+	important := color.New(color.FgRed, color.Bold).SprintFunc()
 
 	// Print basic transaction details
 	fmt.Fprintln(w, "")
@@ -69,7 +70,45 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	fmt.Fprintf(w, "%s: %s\n", bold("Operation"), operation)
 	fmt.Fprintln(w, "")
 
-	// Print call details
+	// Check if this is a nested transaction
+	if result.NestedResult != nil {
+		fmt.Fprintln(w, important("⚠️  NESTED TRANSACTION DETECTED  ⚠️"))
+		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+		fmt.Fprintln(w, bold("This transaction is approving the execution of another transaction."))
+		fmt.Fprintln(w, "")
+
+		nestedTx := result.NestedResult.Transaction
+
+		// Display nested Safe if we can
+		nestedSafeInfo, isKnownNestedSafe := core.GetKnownContract(nestedTx.Safe, uint64(nestedTx.Chain))
+		nestedSafeDisplay := nestedTx.Safe
+		if isKnownNestedSafe {
+			nestedSafeDisplay = fmt.Sprintf("%s (%s ✅)", nestedTx.Safe, nestedSafeInfo.Name)
+		}
+
+		fmt.Fprintln(w, heading("INNER TRANSACTION SUMMARY"))
+		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+		fmt.Fprintf(w, "%s: %s\n", bold("Inner Safe"), nestedSafeDisplay)
+		fmt.Fprintf(w, "%s: %d\n", bold("Inner Nonce"), nestedTx.Nonce)
+		fmt.Fprintf(w, "%s: %s\n", bold("Inner Hash"), result.NestedResult.ApproveHash)
+		fmt.Fprintln(w, "")
+
+		// Print inner call details
+		fmt.Fprintln(w, heading("INNER TRANSACTION DETAILS"))
+		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+		fmt.Fprintln(w, bold("The following shows what the inner transaction will do when executed:"))
+		fmt.Fprintln(w, "")
+
+		// Use the existing function to print the inner call details
+		printCallDetails(w, result.NestedResult.Call, 0, heading, divider, label, yellow, bold)
+
+		// Add a divider after the inner details
+		fmt.Fprintln(w, important("⚠️  END OF INNER TRANSACTION DETAILS  ⚠️"))
+		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+		fmt.Fprintln(w, "")
+	}
+
+	// Print call details (of the outer transaction in case of nested)
 	printCallDetails(w, result.Call, 0, heading, divider, label, yellow, bold)
 
 	// Print hashes

@@ -182,10 +182,11 @@
             100% { transform: rotate(var(--rotation-angle)) translateY(0); }
         }
     </style>
+
     <!-- External libraries -->
     <script src="/lib/scanbot/ScanbotSDK.ui2.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
-    <script src="/lib/sss/shamir-secret-sharing.umd.js"></script>
+    <script src="/lib/fflate/index.min.js"></script>
+    <script src="/lib/erasure/erasure.js"></script>
 </head>
 <body>
     <div class="container">
@@ -236,14 +237,16 @@
         const state = {
             transferId: null,        // Unique ID for the current transfer
             receivedShares: {},      // Format: {partNumber: shareData}
-            threshold: 0,            // Minimum shares needed to reconstruct
+            originalBlobs: 0,        // Number of shards needed for reconstruction
+            allowedFailures: 0,      // Number of failures allowed by erasure coding
             totalShares: 0,          // Total shares in the transaction
             lastScanned: "",         // Text of last scanned QR code
             scanbotSDK: null,        // Reference to Scanbot SDK
             barcodeScanner: null,    // Reference to barcode scanner
             fullData: null,          // Reconstructed data
             expectedFullChecksum: null, // Expected checksum of full data
-            latestReceivedPart: null // Most recently received share number
+            latestReceivedPart: null, // Most recently received share number
+            originalSize: 0          // Original size of the compressed data
         };
         
         // ===== UTILITY FUNCTIONS =====
@@ -316,9 +319,9 @@
                 console.error("Error initializing Scanbot SDK:", error);
             }
         }
-        
+
         // ===== UI FUNCTIONS =====
-        
+
         /**
          * Creates visual shard indicators arranged in a circle
          * @param {number} count - Number of shards to create
@@ -413,16 +416,16 @@
                 }
             });
         }
-        
+
         // ===== DATA PROCESSING =====
-        
+
         /**
          * Handles QR codes detected by the scanner
          * @param {Object} result - Detection result from Scanbot SDK
          */
         async function handleBarcodesDetected(result) {
             if (!result.barcodes || result.barcodes.length === 0) return;
-            
+
             const barcode = result.barcodes[0];
             const decodedText = barcode.text;
             
@@ -434,7 +437,7 @@
                 const qrData = JSON.parse(decodedText);
                 
                 // Validate QR code format
-                if (!qrData.id || !qrData.part || !qrData.total || !qrData.threshold || 
+                if (!qrData.id || !qrData.part || !qrData.total || !qrData.originalBlobs || 
                     !qrData.data || !qrData.checksum || !qrData.fullChecksum) {
                     return;
                 }
@@ -445,8 +448,10 @@
                     
                     state.transferId = qrData.id;
                     state.totalShares = qrData.total;
-                    state.threshold = qrData.threshold;
+                    state.originalBlobs = qrData.originalBlobs;
+                    state.allowedFailures = qrData.allowedFailures;
                     state.expectedFullChecksum = qrData.fullChecksum;
+                    state.originalSize = qrData.originalSize;
                     createShardIndicators(state.totalShares);
                 }
                 
@@ -463,7 +468,7 @@
                     
                     // Check if we have enough shares to reconstruct
                     const receivedCount = Object.keys(state.receivedShares).length;
-                    if (receivedCount >= state.threshold) {
+                    if (receivedCount >= state.originalBlobs) {
                         await reconstructSecretAndVerify();
                     }
                 } else {
@@ -480,19 +485,37 @@
          * Reconstructs and verifies the secret from collected shares
          */
         async function reconstructSecretAndVerify() {
-            const shares = [];
-            const shareKeys = Object.keys(state.receivedShares);
-            
-            // Take the threshold number of shares
-            for (let i = 0; i < state.threshold && i < shareKeys.length; i++) {
-                const shareData = state.receivedShares[shareKeys[i]];
-                shares.push(base64ToUint8Array(shareData));
-            }
-            
             try {
-                // Combine shares and verify reconstructed data
-                const reconstructedSecret = await ShamirSecretSharing.combine(shares);
-                const base64ReconstructedData = uint8ArrayToBase64(reconstructedSecret);
+                // Convert shares back to Uint8Arrays and place in correct positions
+                const encodedShares = new Array(state.totalShares);
+                const shareKeys = Object.keys(state.receivedShares);
+
+                // Place shares in their correct positions
+                let shareSize;
+                for (const key of shareKeys) {
+                    const partIndex = parseInt(key) - 1; // Convert part number to 0-indexed
+                    const shareData = state.receivedShares[key];
+                    encodedShares[partIndex] = base64ToUint8Array(shareData);
+                    shareSize = encodedShares[partIndex].length;
+                }
+
+                // Fill each non-filled share with a placeholder of the correct size
+                for (let i = 0; i < encodedShares.length; i++) {
+                    if (!encodedShares[i]) {
+                        encodedShares[i] = new Uint8Array(shareSize);
+                    }
+                }
+
+                // Use erasure.js to recombine the shards
+                const reconstructedData = erasure.recombine(
+                    encodedShares,
+                    state.originalSize,
+                    state.originalBlobs,
+                    state.allowedFailures
+                );
+
+                // Verify the reconstructed data with the checksum
+                const base64ReconstructedData = uint8ArrayToBase64(reconstructedData);
                 const calculatedFullChecksum = await calculateSHA256(base64ReconstructedData);
                 
                 if (calculatedFullChecksum !== state.expectedFullChecksum) {
@@ -501,7 +524,7 @@
                 }
                 
                 // Decompress the data
-                const decompressedBytes = fflate.unzlibSync(reconstructedSecret);
+                const decompressedBytes = fflate.unzlibSync(reconstructedData);
                 const decodedData = fflate.strFromU8(decompressedBytes);
                 state.fullData = decodedData;
                 
@@ -519,6 +542,7 @@
                 DOM.scannerGlow.style.display = 'none';
                 DOM.completionCircle.style.display = 'flex';
                 
+                console.log(state.fullData)
                 // Send data to server
                 sendResultToServer(state.fullData);
             } catch (error) {
@@ -550,24 +574,25 @@
                 console.error('Error sending result:', err);
             });
         }
-        
+
         /**
          * Resets the transfer state
          */
         function resetTransfer() {
             state.transferId = null;
             state.receivedShares = {};
-            state.threshold = 0;
+            state.originalBlobs = 0;
+            state.allowedFailures = 0;
             state.totalShares = 0;
             state.fullData = null;
             state.expectedFullChecksum = null;
             state.latestReceivedPart = null;
+            state.originalSize = 0;
             DOM.shardsContainer.innerHTML = '';
         }
         
         // ===== EVENT HANDLERS =====
         window.addEventListener('DOMContentLoaded', initializeScanner);
-        
         window.addEventListener('beforeunload', () => {
             if (state.barcodeScanner) {
                 state.barcodeScanner.dispose();

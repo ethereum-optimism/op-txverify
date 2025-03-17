@@ -13,7 +13,7 @@
             background-color: #ffffff;
             color: #111111;
         }
-        
+
         /* Layout */
         .container {
             width: 100%;
@@ -34,9 +34,8 @@
         }
         
         /* Form elements */
-        textarea {
+        textarea, select, input[type="text"] {
             width: 100%;
-            height: 120px;
             margin: 10px 0;
             padding: 15px;
             border: 1px solid #e0e0e0;
@@ -45,6 +44,30 @@
             box-sizing: border-box;
             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
             font-size: 16px;
+        }
+        
+        textarea {
+            height: 120px;
+        }
+        
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 15px center;
+            background-size: 1em;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-label {
+            display: block;
+            text-align: left;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333333;
         }
         
         button {
@@ -159,7 +182,7 @@
             background-color: #f5f5f5;
             border-radius: 12px;
         }
-        
+
         .chunk-indicator {
             width: 28px;
             height: 28px;
@@ -216,10 +239,11 @@
             }
         }
     </style>
+
     <!-- External libraries -->
     <script src="/lib/qrcode/qrcode.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
-    <script src="/lib/sss/shamir-secret-sharing.umd.js"></script>
+    <script src="/lib/fflate/index.min.js"></script>
+    <script src="/lib/erasure/erasure.js"></script>
 </head>
 <body>
     <div class="container">
@@ -233,9 +257,20 @@
 
         <div class="chunks-container" id="chunksContainer"></div>
 
-        <div class="status" id="status">Enter data and click Start Display</div>
+        <div class="status" id="status">Enter transaction hash or link and click Start Display</div>
 
-        <textarea id="jsonInput" placeholder="Paste your JSON data here..."></textarea>
+        <div class="input-group">
+            <label class="input-label" for="networkSelect">Network</label>
+            <select id="networkSelect">
+                <option value="1">Ethereum</option>
+                <option value="10">OP Mainnet</option>
+            </select>
+        </div>
+        
+        <div class="input-group">
+            <label class="input-label" for="txInput">Transaction Hash or Link</label>
+            <input type="text" id="txInput" placeholder="Paste Gnosis Safe transaction hash or link...">
+        </div>
         
         <button id="startBtn">Start Display</button>
     </div>
@@ -244,8 +279,8 @@
         /**
          * QR Code Generator Application
          * 
-         * This script handles the generation and display of QR codes for data transfer.
-         * It compresses data, applies Shamir's Secret Sharing for redundancy,
+         * This script handles the generation and display of QR codes for Gnosis Safe transaction data transfer.
+         * It fetches transaction data from the Safe API, compresses it, applies Shamir's Secret Sharing for redundancy,
          * and creates QR codes to display the shares.
          */
         
@@ -254,20 +289,26 @@
             CHUNK_SIZE: 500,       // Size of each data chunk in characters
             DISPLAY_TIME: 250,     // Time to display each QR code in ms
             ERROR_CORRECTION: 'L', // QR code error correction level
-            REDUNDANCY: 0.3,       // Add 30% more shares for redundancy
-            MIN_THRESHOLD: 5,      // Minimum number of shares to reconstruct
+            REDUNDANCY: 0.6,       // Add 30% more shares for redundancy
             MIN_SHARES: 13         // Minimum number of shares to generate
         };
 
         // DOM element references
         const DOM = {
-            jsonInput: document.getElementById('jsonInput'),
+            txInput: document.getElementById('txInput'),
+            networkSelect: document.getElementById('networkSelect'),
             startBtn: document.getElementById('startBtn'),
             status: document.getElementById('status'),
             qrcodeDiv: document.getElementById('qrcode'),
             qrOverlay: document.getElementById('qrOverlay'),
             generateProgress: document.getElementById('generateProgress'),
             chunksContainer: document.getElementById('chunksContainer')
+        };
+
+        // Mapping of chain IDs to base URLs
+        const CHAIN_ID_TO_BASE_URL = {
+            1: 'https://safe-transaction-mainnet.safe.global',
+            10: 'https://safe-transaction-optimism.safe.global'
         };
         
         // Application state
@@ -283,6 +324,88 @@
         /**
          * Utility Functions
          */
+        
+        // Extract transaction hash from input (link or hash)
+        function extractTransactionHash(input) {
+            // Check if input is a URL
+            if (input.includes('app.safe.global') && input.includes('id=')) {
+                // Extract the transaction hash from the URL
+                const idParam = input.split('id=')[1];
+                // If there are more parameters after the id, split by &
+                const txHash = idParam.includes('&') ? idParam.split('&')[0] : idParam;
+                
+                // The hash might be part of a longer string like multisig_0x...address_0x...hash
+                if (txHash.includes('multisig_') && txHash.includes('_0x')) {
+                    return txHash.split('_').pop(); // Return the last part after the last underscore
+                }
+                
+                return txHash;
+            }
+            
+            // If it's already a hash, return it cleaned (in case there are spaces or other characters)
+            return input.trim();
+        }
+        
+        // Fetch transaction data from Safe API
+        async function fetchTransactionData(chainId, txHash) {
+            const baseUrl = CHAIN_ID_TO_BASE_URL[chainId]
+            const url = `${baseUrl}/api/v2/multisig-transactions/${txHash}/`;
+    
+            try {
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status} ${response.statusText}`);
+                }
+                
+                let content = await response.json();
+                
+                // Check if this is an approveHash transaction
+                let nested = null;
+                if (content.data && content.data.startsWith('0xd4d9bdcd')) {
+                    // Extract the hash from the data (skip first 10 chars for function signature)
+                    const innerHash = '0x' + content.data.slice(10, 10 + 64);
+                    console.log("Detected approveHash transaction, inner hash:", innerHash);
+                    
+                    // Fetch the inner transaction
+                    const innerUrl = `${baseUrl}/api/v2/multisig-transactions/${innerHash}/`;
+                    const innerResponse = await fetch(innerUrl);
+                    
+                    if (!innerResponse.ok) {
+                        throw new Error(`Failed to fetch inner transaction: ${innerResponse.status} ${innerResponse.statusText}`);
+                    }
+                    
+                    const innerContent = await innerResponse.json();
+                    
+                    // Set the nested data
+                    nested = {
+                        safe: content.safe,
+                        nonce: parseInt(content.nonce)
+                    };
+
+                    // Use the inner transaction data instead
+                    content = innerContent;
+                }
+
+                return {
+                    safe: content.safe,
+                    chain: parseInt(chainId),
+                    to: content.to,
+                    value: parseInt(content.value),
+                    data: content.data,
+                    operation: content.operation,
+                    safe_tx_gas: parseInt(content.safeTxGas),
+                    base_gas: parseInt(content.baseGas),
+                    gas_price: parseInt(content.gasPrice),
+                    gas_token: content.gasToken,
+                    refund_receiver: content.refundReceiver,
+                    nonce: parseInt(content.nonce),
+                    nested,
+                }
+            } catch (error) {
+                throw new Error(`Failed to fetch transaction data: ${error.message}`);
+            }
+        }
         
         // Generate a unique transfer ID
         function generateTransferId() {
@@ -378,28 +501,31 @@
          * Core Application Logic
          */
         
-        // Generate QR codes from JSON input
-        async function generateQRCodes(jsonData) {
+        // Generate QR codes from transaction data
+        async function generateQRCodes(transactionData) {
+            // Convert transaction data to JSON string
+            const jsonData = JSON.stringify(transactionData);
+            
             // Compress data using fflate
             const jsonBytes = fflate.strToU8(jsonData);
             const compressedData = fflate.zlibSync(jsonBytes);
-            
-            // Calculate threshold based on data size and chunk size
-            // This is how many shares will be needed to reconstruct the secret
             const compressedSize = compressedData.length;
-            const threshold = Math.max(CONFIG.MIN_THRESHOLD, Math.ceil(compressedSize / CONFIG.CHUNK_SIZE));
+
+            // Calculate parameters for erasure coding
+            const originalBlobs = Math.ceil(compressedSize / CONFIG.CHUNK_SIZE);
             
-            // Calculate total shares to create (threshold + 30%, minimum 10)
-            const totalShares = Math.max(
-                Math.ceil(threshold * (1 + CONFIG.REDUNDANCY)), 
-                CONFIG.MIN_SHARES
+            // allowedFailures determines how many extra shares to create for redundancy
+            // note that erasure.js creates 2*allowedFailures additional shares
+            const allowedFailures = Math.max(
+                Math.ceil(originalBlobs * CONFIG.REDUNDANCY / 2),
+                Math.ceil((CONFIG.MIN_SHARES - originalBlobs) / 2)
             );
-            
-            console.log(`Data size: ${compressedSize} bytes, Threshold: ${threshold}, Total Shares: ${totalShares}`);
-            
-            // Split the compressed data into shares using Shamir's Secret Sharing
-            const shares = await ShamirSecretSharing.split(compressedData, totalShares, threshold);
-            
+
+            console.log(`Data size: ${compressedSize} bytes, Required Shards: ${originalBlobs}, Allowed failures: ${allowedFailures}`);
+
+            // Use erasure.js to split the data
+            const shares = erasure.split(compressedData, originalBlobs, allowedFailures);
+
             // Generate a new transfer ID
             state.transferId = generateTransferId();
             
@@ -407,20 +533,22 @@
             const base64CompressedData = uint8ArrayToBase64(compressedData);
             const fullChecksum = await calculateSHA256(base64CompressedData);
             
-            // Create QR code data for each share
+            // Create QR code data for each shard
             state.chunks = [];
             for (let i = 0; i < shares.length; i++) {
-                const shareData = uint8ArrayToBase64(shares[i]);
-                const shareChecksum = await calculateSHA256(shareData);
+                const shardData = uint8ArrayToBase64(shares[i]);
+                const shardChecksum = await calculateSHA256(shardData);
                 
                 state.chunks.push({
                     id: state.transferId,
                     part: i + 1,
                     total: shares.length,
-                    threshold: threshold,
-                    data: shareData,
-                    checksum: shareChecksum,
-                    fullChecksum: fullChecksum
+                    originalBlobs: originalBlobs,  // Store how many shards needed to reconstruct
+                    allowedFailures: allowedFailures, // Store allowed failures
+                    data: shardData,
+                    checksum: shardChecksum,
+                    fullChecksum: fullChecksum,
+                    originalSize: compressedSize // Store original size for reconstruction
                 });
             }
             
@@ -462,7 +590,7 @@
         // Start displaying QR codes
         function startQRCodeDisplay() {
             // Display info
-            DOM.status.textContent = `Displaying ${state.chunks.length} QR codes (need ${state.chunks[0].threshold} to reconstruct)`;
+            DOM.status.textContent = `Displaying ${state.chunks.length} QR codes`;
             
             // Start displaying QR codes
             state.currentChunkIndex = 0;
@@ -474,7 +602,7 @@
                 displayQRCode(state.currentChunkIndex);
             }, CONFIG.DISPLAY_TIME);
         }
-        
+
         /**
          * Event Handlers
          */
@@ -485,30 +613,40 @@
             stopDisplay();
 
             try {
-                // Validate JSON
-                const jsonData = DOM.jsonInput.value.trim();
-                if (!jsonData) {
-                    DOM.status.textContent = "Please enter JSON data";
+                // Get transaction hash and network
+                const txInput = DOM.txInput.value.trim();
+                const chainId = DOM.networkSelect.value;
+                
+                if (!txInput) {
+                    DOM.status.textContent = "Please enter a transaction hash or link";
                     return;
                 }
                 
-                // Try to parse the JSON to validate it
-                try {
-                    JSON.parse(jsonData);
-                } catch (e) {
-                    DOM.status.textContent = "Invalid JSON format: " + e.message;
+                // Extract transaction hash from the input
+                const txHash = extractTransactionHash(txInput);
+                
+                if (!txHash.startsWith('0x')) {
+                    DOM.status.textContent = "Invalid transaction hash format";
                     return;
                 }
                 
                 // Show overlay with progress
                 DOM.qrOverlay.style.display = 'flex';
                 DOM.generateProgress.value = 0;
+                DOM.status.textContent = "Fetching transaction data...";
                 
                 // Disable button during generation
                 DOM.startBtn.disabled = true;
                 
-                // Generate QR codes
-                await generateQRCodes(jsonData);
+                // Fetch transaction data
+                const transactionData = await fetchTransactionData(chainId, txHash);
+                console.log(JSON.stringify(transactionData, null, 2))
+
+                // Update status
+                DOM.status.textContent = "Generating QR codes...";
+                
+                // Generate QR codes from the fetched data
+                await generateQRCodes(transactionData);
                 
                 // Hide overlay
                 DOM.qrOverlay.style.display = 'none';
@@ -520,7 +658,7 @@
                 startQRCodeDisplay();
                 
             } catch (error) {
-                console.error("Error generating QR codes:", error);
+                console.error("Error:", error);
                 DOM.status.textContent = "Error: " + error.message;
                 DOM.qrOverlay.style.display = 'none';
                 DOM.startBtn.disabled = false;
