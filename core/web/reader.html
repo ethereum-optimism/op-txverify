@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>op-verify writer</title>
+    <title>op-verify reader</title>
     <style>
         /* Base styles */
         body { 
@@ -103,10 +103,10 @@
         
         /* Style for the Sunny image */
         .sunny-image {
-            width: 300px; /* Adjust size as needed */
+            width: 200px;
             height: auto;
             z-index: 3;
-            margin-top: 80px; /* Move the image down by 200px */
+            margin-top: 0px;
         }
         
         /* Individual shard */
@@ -184,6 +184,8 @@
     </style>
     <!-- External libraries -->
     <script src="/lib/scanbot/ScanbotSDK.ui2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
+    <script src="/lib/sss/shamir-secret-sharing.umd.js"></script>
 </head>
 <body>
     <div class="container">
@@ -203,17 +205,26 @@
         /**
          * QR Code Reader Application
          * 
-         * This script handles scanning QR codes to receive and reassemble chunked data.
-         * It uses the Scanbot SDK for QR code scanning and Web Crypto API for verification.
+         * This application scans QR codes to reassemble secret data using Shamir's Secret Sharing.
+         * When sufficient shares are collected, it reconstructs and verifies the original data.
          */
         
-        // Configuration constants
+        // ===== CONSTANTS =====
         const CONFIG = {
-            LICENSE_KEY: "", // Replace with your Scanbot license key if you have one
+            LICENSE_KEY: "", // Your Scanbot license key goes here
             ENGINE_PATH: "/lib/scanbot/engine/"
         };
-        
-        // DOM element references
+
+        const LAYOUT = {
+            CENTER_X: 320,
+            CENTER_Y: 325,
+            INNER_RADIUS: 100,  // Initial radius for shards
+            OUTER_RADIUS: 200,  // Final radius for scanned shards
+            SHARD_OFFSET_X: 45, // Offset for positioning shards
+            SHARD_OFFSET_Y: 50  // Offset for positioning shards
+        };
+
+        // ===== DOM ELEMENTS =====
         const DOM = {
             shardsContainer: document.getElementById('shards-container'),
             cameraContainer: document.getElementById('scanbot-camera-container'),
@@ -221,53 +232,76 @@
             completionCircle: document.querySelector('.completion-circle')
         };
 
-        // Application state
+        // ===== APPLICATION STATE =====
         const state = {
-            transferId: null,
-            receivedParts: {},
-            totalParts: 0,
-            lastScanned: "",
-            scanbotSDK: null,
-            barcodeScanner: null,
-            fullData: null,
-            expectedFullChecksum: null,
-            latestReceivedPart: null
+            transferId: null,        // Unique ID for the current transfer
+            receivedShares: {},      // Format: {partNumber: shareData}
+            threshold: 0,            // Minimum shares needed to reconstruct
+            totalShares: 0,          // Total shares in the transaction
+            lastScanned: "",         // Text of last scanned QR code
+            scanbotSDK: null,        // Reference to Scanbot SDK
+            barcodeScanner: null,    // Reference to barcode scanner
+            fullData: null,          // Reconstructed data
+            expectedFullChecksum: null, // Expected checksum of full data
+            latestReceivedPart: null // Most recently received share number
         };
         
-        /**
-         * Utility Functions
-         */
+        // ===== UTILITY FUNCTIONS =====
         
-        // Calculate SHA-256 hash using Web Crypto API
+        /**
+         * Calculates SHA-256 hash of a string
+         * @param {string} str - String to hash
+         * @returns {Promise<string>} Hex string of SHA-256 hash
+         */
         async function calculateSHA256(str) {
-            // Convert string to ArrayBuffer
             const encoder = new TextEncoder();
             const data = encoder.encode(str);
-            
-            // Calculate hash
             const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-            
-            // Convert to hex string
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            
-            return hashHex;
+            return Array.from(new Uint8Array(hashBuffer))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
         }
         
         /**
-         * Initialization Functions
+         * Converts a base64 string to Uint8Array
+         * @param {string} base64 - Base64 encoded string
+         * @returns {Uint8Array} Decoded bytes
          */
+        function base64ToUint8Array(base64) {
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
         
-        // Initialize the Scanbot SDK
+        /**
+         * Converts a Uint8Array to base64 string
+         * @param {Uint8Array} uint8Array - Byte array to encode
+         * @returns {string} Base64 encoded string
+         */
+        function uint8ArrayToBase64(uint8Array) {
+            let binary = '';
+            const bytes = new Uint8Array(uint8Array);
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+        
+        // ===== INITIALIZATION =====
+        
+        /**
+         * Initializes the Scanbot SDK and barcode scanner
+         */
         async function initializeScanner() {
             try {
-                // Initialize the SDK
                 state.scanbotSDK = await ScanbotSDK.initialize({
                     licenseKey: CONFIG.LICENSE_KEY,
                     enginePath: CONFIG.ENGINE_PATH,
                 });
                 
-                // Create a barcode scanner
                 state.barcodeScanner = await state.scanbotSDK.createBarcodeScanner({
                     containerId: "scanbot-camera-container",
                     onBarcodesDetected: handleBarcodesDetected,
@@ -283,32 +317,30 @@
             }
         }
         
-        /**
-         * UI Functions
-         */
+        // ===== UI FUNCTIONS =====
         
-        // Create visual shard indicators for chunks
+        /**
+         * Creates visual shard indicators arranged in a circle
+         * @param {number} count - Number of shards to create
+         */
         function createShardIndicators(count) {
             DOM.shardsContainer.innerHTML = '';
             
-            // Calculate positions in a circle around the scanner
-            const radius = 280;
-            const centerX = 325;
-            const centerY = 325;
-            
             for (let i = 1; i <= count; i++) {
                 const angle = ((i - 1) / count) * 2 * Math.PI;
-                const x = centerX + radius * Math.cos(angle) - 45;
-                const y = centerY + radius * Math.sin(angle) - 50;
+                
+                // Calculate initial position
+                const x = LAYOUT.CENTER_X + LAYOUT.INNER_RADIUS * Math.cos(angle) - LAYOUT.SHARD_OFFSET_X;
+                const y = LAYOUT.CENTER_Y + LAYOUT.INNER_RADIUS * Math.sin(angle) - LAYOUT.SHARD_OFFSET_Y;
                 
                 const shard = document.createElement('div');
                 shard.className = 'shard';
                 shard.dataset.part = i;
-                shard.dataset.angle = angle; // Store the angle for later use
+                shard.dataset.angle = angle;
                 shard.style.left = `${x}px`;
                 shard.style.top = `${y}px`;
                 
-                // Rotate the shard to point toward the center
+                // Rotate to point outward
                 const rotationDeg = (angle * 180 / Math.PI) + 90;
                 shard.style.setProperty('--rotation-angle', `${rotationDeg}deg`);
                 shard.style.transform = `rotate(${rotationDeg}deg)`;
@@ -317,194 +349,187 @@
             }
         }
         
-        // Update shard indicators based on received parts
+        /**
+         * Marks a single shard as received and positions it in the outer orbit
+         * @param {HTMLElement} shard - The shard element to mark
+         * @param {boolean} isHighlighted - Whether to highlight this shard
+         * @param {boolean} isRescan - Whether this is a rescanned shard
+         */
+        function markShardReceived(shard, isHighlighted = false, isRescan = false) {
+            const angle = parseFloat(shard.dataset.angle);
+            const rotationDeg = (angle * 180 / Math.PI) + 90;
+            
+            // Set rotation and position in outer orbit
+            shard.style.setProperty('--rotation-angle', `${rotationDeg}deg`);
+            shard.style.transform = `rotate(${rotationDeg}deg)`;
+            shard.classList.add('received');
+            
+            // Position in outer orbit
+            const x = LAYOUT.CENTER_X + LAYOUT.OUTER_RADIUS * Math.cos(angle) - LAYOUT.SHARD_OFFSET_X;
+            const y = LAYOUT.CENTER_Y + LAYOUT.OUTER_RADIUS * Math.sin(angle) - LAYOUT.SHARD_OFFSET_Y;
+            
+            shard.style.left = `${x}px`;
+            shard.style.top = `${y}px`;
+            
+            // Handle highlighting
+            shard.classList.remove('latest', 'rescanned');
+            if (isHighlighted) {
+                if (isRescan) {
+                    shard.classList.add('rescanned');
+                    shard.style.animation = 'bounce 0.6s ease-out';
+                    setTimeout(() => { shard.style.animation = ''; }, 600);
+                } else {
+                    shard.classList.add('latest');
+                }
+            }
+        }
+        
+        /**
+         * Updates shard indicators based on received parts
+         * @param {boolean} isRescan - Whether this update is for a rescanned part
+         */
         function updateShardIndicators(isRescan = false) {
             const shards = DOM.shardsContainer.querySelectorAll('.shard');
-            
             shards.forEach(shard => {
                 const part = parseInt(shard.dataset.part);
                 const angle = parseFloat(shard.dataset.angle);
-                
-                // Calculate the rotation (same for all states)
                 const rotationDeg = (angle * 180 / Math.PI) + 90;
                 
-                // Set the rotation as a CSS variable for use in animations
                 shard.style.setProperty('--rotation-angle', `${rotationDeg}deg`);
-                
-                // Apply rotation immediately without transition
                 shard.style.transform = `rotate(${rotationDeg}deg)`;
+                shard.classList.remove('latest', 'rescanned');
                 
-                // Remove any previous "latest" or "rescanned" class
-                shard.classList.remove('latest');
-                shard.classList.remove('rescanned');
-                
-                // Mark received parts
-                if (state.receivedParts[part]) {
-                    shard.classList.add('received');
-                    
-                    // Calculate positions
-                    const inwardRadius = 210;
-                    const centerX = 325;
-                    const centerY = 325;
-                    
-                    // Calculate new position (closer to center)
-                    const x = centerX + inwardRadius * Math.cos(angle) - 45;
-                    const y = centerY + inwardRadius * Math.sin(angle) - 50;
-                    
-                    // Update position to move inward
-                    shard.style.left = `${x}px`;
-                    shard.style.top = `${y}px`;
-                    
-                    // Mark the latest received part
-                    if (part === state.latestReceivedPart) {
-                        // If this is a rescan, use the rescanned class instead of latest
-                        if (isRescan) {
-                            shard.classList.add('rescanned');
-                            
-                            // Apply bounce animation for rescanned shards
-                            shard.style.animation = 'bounce 0.6s ease-out';
-                            
-                            // Remove the animation after it completes
-                            setTimeout(() => {
-                                shard.style.animation = '';
-                            }, 600);
-                        } else {
-                            shard.classList.add('latest');
-                        }
-                    }
+                if (state.receivedShares[part]) {
+                    // Use the shared function for received shards
+                    const isLatest = (part === state.latestReceivedPart);
+                    markShardReceived(shard, isLatest, isRescan);
                 } else {
-                    // Reset position for unreceived shards
-                    const radius = 280;
-                    const centerX = 325;
-                    const centerY = 325;
+                    // Position unreceived shard in inner orbit
+                    const x = LAYOUT.CENTER_X + LAYOUT.INNER_RADIUS * Math.cos(angle) - LAYOUT.SHARD_OFFSET_X;
+                    const y = LAYOUT.CENTER_Y + LAYOUT.INNER_RADIUS * Math.sin(angle) - LAYOUT.SHARD_OFFSET_Y;
                     
-                    // Calculate original position
-                    const x = centerX + radius * Math.cos(angle) - 45;
-                    const y = centerY + radius * Math.sin(angle) - 50;
-                    
-                    // Reset to original position
                     shard.style.left = `${x}px`;
                     shard.style.top = `${y}px`;
                 }
             });
         }
         
-        /**
-         * Data Processing Functions
-         */
+        // ===== DATA PROCESSING =====
         
-        // Handle detected barcodes
+        /**
+         * Handles QR codes detected by the scanner
+         * @param {Object} result - Detection result from Scanbot SDK
+         */
         async function handleBarcodesDetected(result) {
             if (!result.barcodes || result.barcodes.length === 0) return;
             
-            // Get the first detected QR code
             const barcode = result.barcodes[0];
             const decodedText = barcode.text;
             
-            // Skip if this is the same QR code we just processed
+            // Skip duplicate scans
             if (decodedText === state.lastScanned) return;
-            
             state.lastScanned = decodedText;
-
-            console.log("QR Code detected:", decodedText);
             
             try {
-                // Parse the QR code data
                 const qrData = JSON.parse(decodedText);
                 
-                // Validate the QR code format
-                if (!qrData.id || !qrData.part || !qrData.total || !qrData.data || 
-                    !qrData.checksum || !qrData.fullChecksum) {
+                // Validate QR code format
+                if (!qrData.id || !qrData.part || !qrData.total || !qrData.threshold || 
+                    !qrData.data || !qrData.checksum || !qrData.fullChecksum) {
                     return;
                 }
                 
-                // Set transfer ID if this is the first part we're seeing
-                if (!state.transferId) {
+                // Initialize or reset transfer if new ID encountered
+                if (!state.transferId || state.transferId !== qrData.id) {
+                    if (state.transferId) resetTransfer();
+                    
                     state.transferId = qrData.id;
-                    state.totalParts = qrData.total;
+                    state.totalShares = qrData.total;
+                    state.threshold = qrData.threshold;
                     state.expectedFullChecksum = qrData.fullChecksum;
-                    // Create shard indicators when we first learn how many parts there are
-                    createShardIndicators(state.totalParts);
-                } else if (state.transferId !== qrData.id) {
-                    resetTransfer();
-                    state.transferId = qrData.id;
-                    state.totalParts = qrData.total;
-                    state.expectedFullChecksum = qrData.fullChecksum;
-                    // Create new shard indicators for the new transfer
-                    createShardIndicators(state.totalParts);
+                    createShardIndicators(state.totalShares);
                 }
                 
                 // Verify the part's checksum
                 const calculatedChecksum = await calculateSHA256(qrData.data);
-                if (calculatedChecksum !== qrData.checksum) {
-                    return;
-                }
+                if (calculatedChecksum !== qrData.checksum) return;
                 
-                // Store the part if we don't have it yet
-                if (!state.receivedParts[qrData.part]) {
-                    state.receivedParts[qrData.part] = qrData.data;
+                // Process the share
+                if (!state.receivedShares[qrData.part]) {
+                    // New share
+                    state.receivedShares[qrData.part] = qrData.data;
                     state.latestReceivedPart = qrData.part;
-                    
-                    // Update shard indicators
                     updateShardIndicators();
                     
-                    // Check if we have all parts
-                    const receivedCount = Object.keys(state.receivedParts).length;
-                    if (receivedCount === state.totalParts) {
-                        await assembleAndVerifyData();
+                    // Check if we have enough shares to reconstruct
+                    const receivedCount = Object.keys(state.receivedShares).length;
+                    if (receivedCount >= state.threshold) {
+                        await reconstructSecretAndVerify();
                     }
                 } else {
-                    // We already have this part, but we'll highlight it as rescanned
+                    // Rescanned share
                     state.latestReceivedPart = qrData.part;
-                    updateShardIndicators(true); // Pass true to indicate this is a rescan
+                    updateShardIndicators(true);
                 }
             } catch (error) {
                 console.error("Error processing QR code:", error);
             }
         }
         
-        // Assemble and verify the complete data
-        async function assembleAndVerifyData() {
-            // Assemble the data in the correct order
-            const orderedParts = [];
-            for (let i = 1; i <= state.totalParts; i++) {
-                if (!state.receivedParts[i]) {
+        /**
+         * Reconstructs and verifies the secret from collected shares
+         */
+        async function reconstructSecretAndVerify() {
+            const shares = [];
+            const shareKeys = Object.keys(state.receivedShares);
+            
+            // Take the threshold number of shares
+            for (let i = 0; i < state.threshold && i < shareKeys.length; i++) {
+                const shareData = state.receivedShares[shareKeys[i]];
+                shares.push(base64ToUint8Array(shareData));
+            }
+            
+            try {
+                // Combine shares and verify reconstructed data
+                const reconstructedSecret = await ShamirSecretSharing.combine(shares);
+                const base64ReconstructedData = uint8ArrayToBase64(reconstructedSecret);
+                const calculatedFullChecksum = await calculateSHA256(base64ReconstructedData);
+                
+                if (calculatedFullChecksum !== state.expectedFullChecksum) {
+                    console.error("Checksum verification failed");
                     return;
                 }
-                orderedParts.push(state.receivedParts[i]);
-            }
-            
-            // Combine all parts
-            const combinedData = orderedParts.join('');
-            
-            // Verify the full data checksum
-            const calculatedFullChecksum = await calculateSHA256(combinedData);
-            if (calculatedFullChecksum !== state.expectedFullChecksum) {
-                return;
-            }
-            
-            // Data is valid, decode from base64
-            try {
-                state.fullData = atob(combinedData);
                 
-                // Stop the scanner
+                // Decompress the data
+                const decompressedBytes = fflate.unzlibSync(reconstructedSecret);
+                const decodedData = fflate.strFromU8(decompressedBytes);
+                state.fullData = decodedData;
+                
+                // Mark all shards as received
+                const shards = DOM.shardsContainer.querySelectorAll('.shard');
+                shards.forEach(shard => markShardReceived(shard));
+                
+                // Update UI and cleanup
                 if (state.barcodeScanner) {
                     state.barcodeScanner.dispose();
                 }
                 
-                // Replace scanner view with solid red circle
+                // Show completion state
                 DOM.cameraContainer.style.display = 'none';
                 DOM.scannerGlow.style.display = 'none';
-                DOM.completionCircle.style.display = 'block';
+                DOM.completionCircle.style.display = 'flex';
                 
-                // Send the result to the server
+                // Send data to server
                 sendResultToServer(state.fullData);
             } catch (error) {
-                console.error("Error decoding data:", error);
+                console.error("Error reconstructing secret:", error);
             }
         }
         
-        // Send the assembled data to the server
+        /**
+         * Sends reconstructed data to the server
+         * @param {string} data - Reconstructed data to send
+         */
         function sendResultToServer(data) {
             fetch('/result', {
                 method: 'POST',
@@ -516,7 +541,7 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    setTimeout(() => window.close(), 3000);
+                    setTimeout(() => window.close(), 1000);
                 } else {
                     console.error('Server error:', data.message || 'Unknown error');
                 }
@@ -526,25 +551,23 @@
             });
         }
         
-        // Reset the transfer state
+        /**
+         * Resets the transfer state
+         */
         function resetTransfer() {
             state.transferId = null;
-            state.receivedParts = {};
-            state.totalParts = 0;
+            state.receivedShares = {};
+            state.threshold = 0;
+            state.totalShares = 0;
             state.fullData = null;
             state.expectedFullChecksum = null;
             state.latestReceivedPart = null;
-            DOM.shardsContainer.innerHTML = ''; // Clear shards
+            DOM.shardsContainer.innerHTML = '';
         }
         
-        /**
-         * Event Handlers
-         */
-        
-        // Initialize the scanner when the page loads
+        // ===== EVENT HANDLERS =====
         window.addEventListener('DOMContentLoaded', initializeScanner);
         
-        // Clean up when the page is closed
         window.addEventListener('beforeunload', () => {
             if (state.barcodeScanner) {
                 state.barcodeScanner.dispose();

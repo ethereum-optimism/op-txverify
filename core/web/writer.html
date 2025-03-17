@@ -218,6 +218,8 @@
     </style>
     <!-- External libraries -->
     <script src="/lib/qrcode/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
+    <script src="/lib/sss/shamir-secret-sharing.umd.js"></script>
 </head>
 <body>
     <div class="container">
@@ -237,22 +239,26 @@
         
         <button id="startBtn">Start Display</button>
     </div>
-    
+
     <script>
         /**
          * QR Code Generator Application
          * 
          * This script handles the generation and display of QR codes for data transfer.
-         * It splits large JSON data into chunks and displays them sequentially.
+         * It compresses data, applies Shamir's Secret Sharing for redundancy,
+         * and creates QR codes to display the shares.
          */
         
         // Configuration constants
         const CONFIG = {
             CHUNK_SIZE: 500,       // Size of each data chunk in characters
-            DISPLAY_TIME: 250,      // Time to display each QR code in ms
-            ERROR_CORRECTION: 'L'   // QR code error correction level
+            DISPLAY_TIME: 250,     // Time to display each QR code in ms
+            ERROR_CORRECTION: 'L', // QR code error correction level
+            REDUNDANCY: 0.3,       // Add 30% more shares for redundancy
+            MIN_THRESHOLD: 5,      // Minimum number of shares to reconstruct
+            MIN_SHARES: 13         // Minimum number of shares to generate
         };
-        
+
         // DOM element references
         const DOM = {
             jsonInput: document.getElementById('jsonInput'),
@@ -283,15 +289,6 @@
             return 'transfer-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
         }
 
-        // Split data into chunks of specified size
-        function splitIntoChunks(data, chunkSize) {
-            const chunks = [];
-            for (let i = 0; i < data.length; i += chunkSize) {
-                chunks.push(data.substring(i, i + chunkSize));
-            }
-            return chunks;
-        }
-        
         // Calculate SHA-256 hash using Web Crypto API
         async function calculateSHA256(str) {
             // Convert string to ArrayBuffer
@@ -314,6 +311,17 @@
                 clearInterval(state.displayInterval);
                 state.displayInterval = null;
             }
+        }
+        
+        // Convert Uint8Array to base64 string
+        function uint8ArrayToBase64(uint8Array) {
+            let binary = '';
+            const bytes = new Uint8Array(uint8Array);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
         }
         
         /**
@@ -372,29 +380,46 @@
         
         // Generate QR codes from JSON input
         async function generateQRCodes(jsonData) {
-            // Convert to base64
-            const base64Data = btoa(jsonData);
+            // Compress data using fflate
+            const jsonBytes = fflate.strToU8(jsonData);
+            const compressedData = fflate.zlibSync(jsonBytes);
             
-            // Calculate full data checksum
-            const fullChecksum = await calculateSHA256(base64Data);
+            // Calculate threshold based on data size and chunk size
+            // This is how many shares will be needed to reconstruct the secret
+            const compressedSize = compressedData.length;
+            const threshold = Math.max(CONFIG.MIN_THRESHOLD, Math.ceil(compressedSize / CONFIG.CHUNK_SIZE));
+            
+            // Calculate total shares to create (threshold + 30%, minimum 10)
+            const totalShares = Math.max(
+                Math.ceil(threshold * (1 + CONFIG.REDUNDANCY)), 
+                CONFIG.MIN_SHARES
+            );
+            
+            console.log(`Data size: ${compressedSize} bytes, Threshold: ${threshold}, Total Shares: ${totalShares}`);
+            
+            // Split the compressed data into shares using Shamir's Secret Sharing
+            const shares = await ShamirSecretSharing.split(compressedData, totalShares, threshold);
             
             // Generate a new transfer ID
             state.transferId = generateTransferId();
             
-            // Split into chunks
-            const dataChunks = splitIntoChunks(base64Data, CONFIG.CHUNK_SIZE);
+            // Calculate checksum for the original compressed data
+            const base64CompressedData = uint8ArrayToBase64(compressedData);
+            const fullChecksum = await calculateSHA256(base64CompressedData);
             
-            // Create QR code data for each chunk
+            // Create QR code data for each share
             state.chunks = [];
-            for (let i = 0; i < dataChunks.length; i++) {
-                const chunk = dataChunks[i];
-                const chunkChecksum = await calculateSHA256(chunk);
+            for (let i = 0; i < shares.length; i++) {
+                const shareData = uint8ArrayToBase64(shares[i]);
+                const shareChecksum = await calculateSHA256(shareData);
+                
                 state.chunks.push({
                     id: state.transferId,
                     part: i + 1,
-                    total: dataChunks.length,
-                    data: chunk,
-                    checksum: chunkChecksum,
+                    total: shares.length,
+                    threshold: threshold,
+                    data: shareData,
+                    checksum: shareChecksum,
                     fullChecksum: fullChecksum
                 });
             }
@@ -437,7 +462,7 @@
         // Start displaying QR codes
         function startQRCodeDisplay() {
             // Display info
-            DOM.status.textContent = `Displaying ${state.chunks.length} QR codes...`;
+            DOM.status.textContent = `Displaying ${state.chunks.length} QR codes (need ${state.chunks[0].threshold} to reconstruct)`;
             
             // Start displaying QR codes
             state.currentChunkIndex = 0;
