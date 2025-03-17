@@ -109,6 +109,21 @@
             margin-top: 0px;
         }
         
+        /* Success message styling */
+        .success-message {
+            position: absolute;
+            top: 65%;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            z-index: 3;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        
         /* Individual shard */
         .shard {
             position: absolute;
@@ -197,6 +212,7 @@
             <div class="scanner-glow"></div>
             <div class="completion-circle">
                 <img src="/lib/sunny.png" alt="Sunny" class="sunny-image">
+                <div class="success-message">Scan successful! You may now close this window.</div>
             </div>
             <div id="shards-container"></div>
         </div>
@@ -565,6 +581,11 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    // Show success message
+                    const successMessage = document.querySelector('.success-message');
+                    successMessage.style.opacity = '1';
+                    
+                    // Still try to close window (may be blocked by browser)
                     setTimeout(() => window.close(), 1000);
                 } else {
                     console.error('Server error:', data.message || 'Unknown error');

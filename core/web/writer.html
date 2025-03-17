@@ -640,7 +640,6 @@
                 
                 // Fetch transaction data
                 const transactionData = await fetchTransactionData(chainId, txHash);
-                console.log(JSON.stringify(transactionData, null, 2))
 
                 // Update status
                 DOM.status.textContent = "Generating QR codes...";
