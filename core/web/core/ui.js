@@ -1,1239 +1,266 @@
 /**
- * Creates and returns a result container for displaying verification results
- * @returns {HTMLElement} The result container
- */
-function createResultContainer() {
-    const container = document.createElement('div');
-    container.className = 'verification-result';
-    container.style.cssText = `
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-        background-color: #121212;
-        border-radius: 16px;
-        color: #ffffff;
-        overflow: hidden;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-        margin: 32px auto;
-        max-width: 960px;
-    `;
-    return container;
-}
-
-/**
- * Creates the header for the verification container
- * @param {string} title - The title to display
- * @returns {HTMLElement} The header element
- */
-function createVerificationHeader(title = "Transaction Verification") {
-    const header = document.createElement('div');
-    header.style.cssText = `
-        padding: 24px;
-        background: linear-gradient(135deg, #2c2c2c 0%, #1a1a1a 100%);
-        border-bottom: 1px solid #333;
-    `;
-    
-    const titleEl = document.createElement('h1');
-    titleEl.textContent = title;
-    titleEl.style.cssText = `
-        color: #fff;
-        font-size: 24px;
-        font-weight: 700;
-        margin: 0;
-    `;
-    
-    header.appendChild(titleEl);
-    return header;
-}
-
-/**
- * Creates a tab navigation system
- * @param {string[]} tabNames - Names of the tabs
- * @returns {Object} Object containing the tab container and content elements
- */
-function createTabNavigation(tabNames) {
-    const tabContainer = document.createElement('div');
-    tabContainer.style.cssText = `
-        display: flex;
-        background: #1a1a1a;
-        position: sticky;
-        top: 0;
-        z-index: 10;
-    `;
-    
-    const tabContents = document.createElement('div');
-    tabContents.style.cssText = `padding: 0;`;
-    
-    const contentSections = [];
-    
-    tabNames.forEach((name, index) => {
-        // Create tab button
-        const tab = document.createElement('button');
-        tab.textContent = name;
-        tab.style.cssText = `
-            flex: 1;
-            background: ${index === 0 ? '#272727' : 'transparent'};
-            color: ${index === 0 ? '#03dac6' : '#888'};
-            border: none;
-            padding: 16px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border-bottom: ${index === 0 ? '3px solid #03dac6' : '3px solid transparent'};
-        `;
-        tabContainer.appendChild(tab);
-        
-        // Create content section
-        const content = document.createElement('div');
-        content.style.cssText = `
-            display: ${index === 0 ? 'block' : 'none'};
-            padding: 24px;
-        `;
-        tabContents.appendChild(content);
-        contentSections.push(content);
-        
-        // Add event listener
-        tab.addEventListener('click', () => {
-            // Update tab styles
-            Array.from(tabContainer.children).forEach((t, i) => {
-                t.style.background = i === index ? '#272727' : 'transparent';
-                t.style.color = i === index ? '#03dac6' : '#888';
-                t.style.borderBottom = i === index ? '3px solid #03dac6' : '3px solid transparent';
-            });
-            
-            // Show selected content
-            contentSections.forEach((c, i) => {
-                c.style.display = i === index ? 'block' : 'none';
-            });
-        });
-    });
-    
-    return { tabContainer, contentSections };
-}
-
-/**
- * Creates a verification status banner
- * @param {boolean} isNested - Whether this is a nested transaction
- * @returns {HTMLElement} The status banner
- */
-function createStatusBanner(isNested = false) {
-    const banner = document.createElement('div');
-    
-    if (isNested) {
-        banner.style.cssText = `
-            background: linear-gradient(90deg, rgba(255,82,82,0.15) 0%, rgba(255,82,82,0.05) 100%);
-            border-left: 4px solid #ff5252;
-            padding: 16px 24px;
-            margin: 0 0 24px 0;
-        `;
-        
-        const icon = document.createElement('span');
-        icon.textContent = '⚠️';
-        icon.style.cssText = 'font-size: 20px; margin-right: 12px; vertical-align: middle;';
-        
-        const text = document.createElement('span');
-        text.innerHTML = '<strong>Nested Transaction Detected</strong> - This transaction approves another transaction. Verify both carefully.';
-        text.style.cssText = 'vertical-align: middle; font-size: 15px;';
-        
-        banner.appendChild(icon);
-        banner.appendChild(text);
-    } else {
-        banner.style.cssText = `
-            background: linear-gradient(90deg, rgba(3,218,198,0.15) 0%, rgba(3,218,198,0.05) 100%);
-            border-left: 4px solid #03dac6;
-            padding: 16px 24px;
-            margin: 0 0 24px 0;
-        `;
-        
-        const icon = document.createElement('span');
-        icon.textContent = '🔍';
-        icon.style.cssText = 'font-size: 20px; margin-right: 12px; vertical-align: middle;';
-        
-        const text = document.createElement('span');
-        text.innerHTML = '<strong>Verify Transaction Details</strong> - Ensure all details match what you expect.';
-        text.style.cssText = 'vertical-align: middle; font-size: 15px;';
-        
-        banner.appendChild(icon);
-        banner.appendChild(text);
-    }
-    
-    return banner;
-}
-
-/**
- * Creates an info card for displaying grouped information
- * @param {string} title - Card title
- * @param {Object} data - Key-value pairs to display
- * @param {Object} options - Display options
- * @returns {HTMLElement} The info card
- */
-function createInfoCard(title, data, options = {}) {
-    const card = document.createElement('div');
-    card.style.cssText = `
-        background: #1e1e1e;
-        border-radius: 12px;
-        overflow: hidden;
-        margin-bottom: 24px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    `;
-    
-    const header = document.createElement('div');
-    header.style.cssText = `
-        padding: 16px 20px;
-        background: #272727;
-        border-bottom: 1px solid #333;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    `;
-    
-    const titleEl = document.createElement('h3');
-    titleEl.textContent = title;
-    titleEl.style.cssText = `
-        margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: #fff;
-    `;
-    
-    header.appendChild(titleEl);
-    
-    // Add collapse button if collapsible
-    if (options.collapsible) {
-        const collapseBtn = document.createElement('button');
-        collapseBtn.innerHTML = '−';
-        collapseBtn.style.cssText = `
-            background: none;
-            border: none;
-            color: #888;
-            font-size: 20px;
-            cursor: pointer;
-            width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0;
-        `;
-        
-        header.appendChild(collapseBtn);
-        
-        // Create content container
-        const content = document.createElement('div');
-        content.style.cssText = `padding: 20px;`;
-        
-        // Toggle collapse on click
-        collapseBtn.addEventListener('click', () => {
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-                collapseBtn.innerHTML = '−';
-            } else {
-                content.style.display = 'none';
-                collapseBtn.innerHTML = '+';
-            }
-        });
-        
-        card.appendChild(header);
-        card.appendChild(content);
-        
-        // Add items to the card
-        populateCardContent(content, data, options);
-        
-        return card;
-    } else {
-        card.appendChild(header);
-        
-        // Create content container
-        const content = document.createElement('div');
-        content.style.cssText = `padding: 20px;`;
-        card.appendChild(content);
-        
-        // Add items to the card
-        populateCardContent(content, data, options);
-        
-        return card;
-    }
-}
-
-/**
- * Populates a card with content based on data
- * @param {HTMLElement} container - Container to populate
- * @param {Object} data - Data to display
- * @param {Object} options - Display options
- */
-function populateCardContent(container, data, options) {
-    if (options.type === 'hash') {
-        // Display hashes with copy buttons
-        Object.entries(data).forEach(([key, value]) => {
-            const item = document.createElement('div');
-            item.style.cssText = 'margin-bottom: 16px; last-child: margin-bottom: 0;';
-            
-            const label = document.createElement('div');
-            label.textContent = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1');
-            label.style.cssText = 'font-size: 14px; color: #888; margin-bottom: 6px;';
-            
-            const hashContainer = document.createElement('div');
-            hashContainer.style.cssText = `
-                display: flex;
-                align-items: center;
-                background: rgba(0,0,0,0.2);
-                border-radius: 8px;
-                padding: 10px 12px;
-                position: relative;
-            `;
-            
-            const hashValue = document.createElement('code');
-            hashValue.textContent = value;
-            hashValue.style.cssText = `
-                font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-                color: #03dac6;
-                overflow-x: auto;
-                white-space: nowrap;
-                font-size: 14px;
-                margin-right: 10px;
-                flex: 1;
-            `;
-            
-            const copyBtn = document.createElement('button');
-            copyBtn.textContent = 'Copy';
-            copyBtn.style.cssText = `
-                background: #333;
-                border: none;
-                color: #fff;
-                padding: 6px 12px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 12px;
-                transition: background 0.2s;
-                flex-shrink: 0;
-            `;
-            
-            copyBtn.addEventListener('mouseover', () => {
-                copyBtn.style.background = '#444';
-            });
-            
-            copyBtn.addEventListener('mouseout', () => {
-                copyBtn.style.background = '#333';
-            });
-            
-            copyBtn.addEventListener('click', () => {
-                navigator.clipboard.writeText(value);
-                copyBtn.textContent = 'Copied!';
-                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
-            });
-            
-            hashContainer.appendChild(hashValue);
-            hashContainer.appendChild(copyBtn);
-            
-            item.appendChild(label);
-            item.appendChild(hashContainer);
-            container.appendChild(item);
-        });
-    } else if (options.type === 'table') {
-        // Create table for key-value pairs
-        const table = document.createElement('div');
-        table.style.cssText = `
-            border-radius: 8px;
-            overflow: hidden;
-            font-size: 14px;
-        `;
-        
-        Object.entries(data).forEach(([key, value], index, array) => {
-            const row = document.createElement('div');
-            row.style.cssText = `
-                display: flex;
-                background: ${index % 2 === 0 ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.2)'};
-                ${index === array.length - 1 ? '' : 'border-bottom: 1px solid rgba(255,255,255,0.05);'}
-            `;
-            
-            const keyCell = document.createElement('div');
-            keyCell.textContent = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1');
-            keyCell.style.cssText = `
-                width: 140px;
-                padding: 10px 16px;
-                font-weight: 500;
-                color: #bb86fc;
-                flex-shrink: 0;
-            `;
-            
-            const valueCell = document.createElement('div');
-            valueCell.style.cssText = `
-                flex: 1;
-                padding: 10px 16px;
-                word-break: break-word;
-            `;
-            
-            // Detect verified addresses and highlight them
-            if (typeof value === 'string' && value.includes(' ✅')) {
-                const parts = value.split(' (');
-                const address = document.createElement('span');
-                address.textContent = parts[0];
-                
-                valueCell.appendChild(address);
-                
-                if (parts.length > 1) {
-                    const verified = document.createElement('span');
-                    verified.innerHTML = ` (<span style="color: #03dac6; font-weight: 500;">${parts[1]}</span>`;
-                    valueCell.appendChild(verified);
-                }
-            } else {
-                valueCell.textContent = value;
-            }
-            
-            row.appendChild(keyCell);
-            row.appendChild(valueCell);
-            table.appendChild(row);
-        });
-        
-        container.appendChild(table);
-    } else {
-        // Default display for key-value pairs
-        Object.entries(data).forEach(([key, value]) => {
-            const item = document.createElement('div');
-            item.style.cssText = 'margin-bottom: 12px; display: flex; flex-wrap: wrap;';
-            
-            const label = document.createElement('div');
-            label.textContent = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1');
-            label.style.cssText = 'width: 140px; font-weight: 500; color: #bb86fc; margin-right: 16px; flex-shrink: 0;';
-            
-            const valueEl = document.createElement('div');
-            valueEl.style.cssText = 'flex: 1; min-width: 200px;';
-            
-            // Detect verified addresses and highlight them
-            if (typeof value === 'string' && value.includes(' ✅')) {
-                const parts = value.split(' (');
-                const address = document.createElement('span');
-                address.textContent = parts[0];
-                
-                valueEl.appendChild(address);
-                
-                if (parts.length > 1) {
-                    const verified = document.createElement('span');
-                    verified.innerHTML = ` (<span style="color: #03dac6; font-weight: 500;">${parts[1]}</span>`;
-                    valueEl.appendChild(verified);
-                }
-            } else {
-                valueEl.textContent = value;
-            }
-            
-            item.appendChild(label);
-            item.appendChild(valueEl);
-            container.appendChild(item);
-        });
-    }
-}
-
-/**
- * Creates a function call display
- * @param {Object} call - Call data
- * @returns {HTMLElement} The function call element
- */
-function createFunctionCall(call) {
-    const callContainer = document.createElement('div');
-    callContainer.style.cssText = `
-        background: #1e1e1e;
-        border-radius: 12px;
-        overflow: hidden;
-        margin-bottom: 24px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    `;
-    
-    // Format the target with contract name if known
-    let targetDisplay = call.target;
-    if (call.targetName) {
-        targetDisplay = `${call.target} (${call.targetName} ✅)`;
-    }
-    
-    // Create function header
-    const header = document.createElement('div');
-    header.style.cssText = `
-        padding: 16px 20px;
-        background: #272727;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-bottom: 1px solid #333;
-    `;
-    
-    const functionName = document.createElement('div');
-    functionName.style.cssText = `
-        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-        font-weight: 600;
-        font-size: 16px;
-        color: #03dac6;
-    `;
-    functionName.textContent = call.functionName;
-    
-    header.appendChild(functionName);
-    
-    // Create collapse button
-    const collapseBtn = document.createElement('button');
-    collapseBtn.innerHTML = '−';
-    collapseBtn.style.cssText = `
-        background: none;
-        border: none;
-        color: #888;
-        font-size: 20px;
-        cursor: pointer;
-        width: 24px;
-        height: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-    `;
-    
-    header.appendChild(collapseBtn);
-    callContainer.appendChild(header);
-    
-    // Create content container
-    const content = document.createElement('div');
-    content.style.cssText = `padding: 0;`;
-    callContainer.appendChild(content);
-    
-    // Toggle collapse on click
-    collapseBtn.addEventListener('click', () => {
-        if (content.style.display === 'none') {
-            content.style.display = 'block';
-            collapseBtn.innerHTML = '−';
-        } else {
-            content.style.display = 'none';
-            collapseBtn.innerHTML = '+';
-        }
-    });
-    
-    // Target address
-    const targetSection = document.createElement('div');
-    targetSection.style.cssText = `
-        padding: 16px 20px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-    `;
-    
-    const targetLabel = document.createElement('div');
-    targetLabel.textContent = 'Contract Address';
-    targetLabel.style.cssText = 'font-size: 14px; color: #888; margin-bottom: 6px;';
-    
-    const targetValue = document.createElement('div');
-    targetValue.style.cssText = `
-        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-        word-break: break-all;
-        background: rgba(0,0,0,0.2);
-        padding: 10px;
-        border-radius: 6px;
-        font-size: 14px;
-    `;
-    
-    // Detect verified addresses and highlight them
-    if (targetDisplay.includes(' ✅')) {
-        const parts = targetDisplay.split(' (');
-        const address = document.createElement('span');
-        address.textContent = parts[0];
-        
-        targetValue.appendChild(address);
-        
-        if (parts.length > 1) {
-            const verified = document.createElement('span');
-            verified.innerHTML = ` (<span style="color: #03dac6; font-weight: 500;">${parts[1]}</span>`;
-            targetValue.appendChild(verified);
-        }
-    } else {
-        targetValue.textContent = targetDisplay;
-    }
-    
-    targetSection.appendChild(targetLabel);
-    targetSection.appendChild(targetValue);
-    content.appendChild(targetSection);
-    
-    // Parameters section if available
-    if (call.parsedData) {
-        const paramsSection = document.createElement('div');
-        paramsSection.style.cssText = `
-            padding: 16px 20px;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        `;
-        
-        const paramsLabel = document.createElement('div');
-        paramsLabel.textContent = 'Parameters';
-        paramsLabel.style.cssText = 'font-size: 14px; color: #888; margin-bottom: 10px;';
-        
-        paramsSection.appendChild(paramsLabel);
-        
-        // Create parameters table
-        if (typeof call.parsedData === 'object') {
-            const paramsTable = document.createElement('div');
-            paramsTable.style.cssText = `
-                border-radius: 6px;
-                overflow: hidden;
-                font-size: 14px;
-            `;
-            
-            const keys = Object.keys(call.parsedData).sort();
-            for (let i = 0; i < keys.length; i++) {
-                const key = keys[i];
-                const value = call.parsedData[key];
-                
-                const row = document.createElement('div');
-                row.style.cssText = `
-                    display: flex;
-                    background: ${i % 2 === 0 ? 'rgba(0,0,0,0.1)' : 'rgba(0,0,0,0.2)'};
-                    ${i === keys.length - 1 ? '' : 'border-bottom: 1px solid rgba(255,255,255,0.05);'}
-                `;
-                
-                const keyCell = document.createElement('div');
-                keyCell.textContent = key;
-                keyCell.style.cssText = `
-                    width: 140px;
-                    padding: 10px 16px;
-                    color: #03dac6;
-                    font-weight: 500;
-                    flex-shrink: 0;
-                `;
-                
-                const valueCell = document.createElement('div');
-                valueCell.textContent = value;
-                valueCell.style.cssText = `
-                    flex: 1;
-                    padding: 10px 16px;
-                    word-break: break-word;
-                    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-                `;
-                
-                row.appendChild(keyCell);
-                row.appendChild(valueCell);
-                paramsTable.appendChild(row);
-            }
-            
-            paramsSection.appendChild(paramsTable);
-        } else {
-            const valueEl = document.createElement('div');
-            valueEl.textContent = call.parsedData;
-            valueEl.style.cssText = `
-                background: rgba(0,0,0,0.2);
-                padding: 10px;
-                border-radius: 6px;
-                font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-                font-size: 14px;
-            `;
-            paramsSection.appendChild(valueEl);
-        }
-        
-        content.appendChild(paramsSection);
-    }
-    
-    // Raw data section if available
-    if (call.rawData) {
-        const rawDataSection = document.createElement('div');
-        rawDataSection.style.cssText = `
-            padding: 16px 20px;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        `;
-        
-        const rawDataLabel = document.createElement('div');
-        rawDataLabel.textContent = 'Raw Call Data';
-        rawDataLabel.style.cssText = 'font-size: 14px; color: #888; margin-bottom: 6px;';
-        
-        const rawDataValue = document.createElement('pre');
-        rawDataValue.textContent = call.rawData;
-        rawDataValue.style.cssText = `
-            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-            background: rgba(0,0,0,0.2);
-            padding: 10px;
-            border-radius: 6px;
-            overflow-x: auto;
-            font-size: 12px;
-            margin: 0;
-            max-height: 120px;
-            overflow-y: auto;
-        `;
-        
-        // Add copy button for raw data
-        const copyBtn = document.createElement('button');
-        copyBtn.textContent = 'Copy Raw Data';
-        copyBtn.style.cssText = `
-            background: #333;
-            border: none;
-            color: #fff;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            margin-top: 8px;
-        `;
-        
-        copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(call.rawData);
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => { copyBtn.textContent = 'Copy Raw Data'; }, 2000);
-        });
-        
-        rawDataSection.appendChild(rawDataLabel);
-        rawDataSection.appendChild(rawDataValue);
-        rawDataSection.appendChild(copyBtn);
-        content.appendChild(rawDataSection);
-    }
-    
-    // Subcalls section if available
-    if (call.subCalls && call.subCalls.length > 0) {
-        const subcallsSection = document.createElement('div');
-        subcallsSection.style.cssText = `
-            margin-top: 24px;
-            border-top: 1px solid rgba(255,255,255,0.1);
-            padding-top: 20px;
-        `;
-        
-        const subcallsLabel = document.createElement('div');
-        subcallsLabel.textContent = `Subcalls (${call.subCalls.length})`;
-        subcallsLabel.style.cssText = `
-            margin-bottom: 16px;
-            font-weight: 600;
-            color: #bb86fc;
-        `;
-        
-        subcallsSection.appendChild(subcallsLabel);
-        
-        // Add each subcall
-        call.subCalls.forEach((subcall, index) => {
-            const subcallContainer = document.createElement('div');
-            subcallContainer.style.cssText = `
-                margin-bottom: ${index < call.subCalls.length - 1 ? '24px' : '0'};
-                background: rgba(0,0,0,0.15);
-                border-radius: 8px;
-                padding: 16px;
-                border-left: 3px solid #bb86fc;
-            `;
-            
-            const subcallTitle = document.createElement('div');
-            subcallTitle.textContent = `Subcall #${index + 1}`;
-            subcallTitle.style.cssText = 'font-size: 14px; color: #888; margin-bottom: 12px;';
-            
-            subcallContainer.appendChild(subcallTitle);
-            subcallContainer.appendChild(createFunctionCall(subcall));
-            subcallsSection.appendChild(subcallContainer);
-        });
-        
-        content.appendChild(subcallsSection);
-    }
-    
-    return callContainer;
-}
-
-/**
- * Creates a verification instructions section
- * @returns {HTMLElement} Verification instructions element
- */
-function createVerificationInstructions() {
-    const container = document.createElement('div');
-    container.style.cssText = `
-        background: #1e1e1e;
-        border-radius: 12px;
-        overflow: hidden;
-        margin-bottom: 24px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    `;
-    
-    // Header
-    const header = document.createElement('div');
-    header.style.cssText = `
-        padding: 16px 20px;
-        background: linear-gradient(90deg, rgba(3,218,198,0.3) 0%, rgba(3,218,198,0.1) 100%);
-        border-bottom: 1px solid rgba(3,218,198,0.2);
-    `;
-    
-    const title = document.createElement('h3');
-    title.innerHTML = '🔍 VERIFICATION CHECKLIST';
-    title.style.cssText = `
-        margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: #03dac6;
-    `;
-    
-    header.appendChild(title);
-    container.appendChild(header);
-    
-    // Content
-    const content = document.createElement('div');
-    content.style.cssText = `padding: 20px;`;
-    
-    const instructions = [
-        {
-            title: "Check Transaction Details",
-            desc: "Ensure all transaction details exactly match what you expect to approve."
-        },
-        {
-            title: "Verify Hashes",
-            desc: "Domain and message hashes should exactly match those shown on other devices."
-        },
-        {
-            title: "Check Hardware Wallet",
-            desc: "Your hardware wallet should display the exact same hashes for signing."
-        },
-        {
-            title: "Ask for Help if Uncertain",
-            desc: "If anything seems suspicious or unclear, seek assistance before approving."
-        }
-    ];
-    
-    instructions.forEach((item, index) => {
-        const step = document.createElement('div');
-        step.style.cssText = `
-            display: flex;
-            align-items: flex-start;
-            margin-bottom: ${index < instructions.length - 1 ? '16px' : '0'};
-        `;
-        
-        const number = document.createElement('div');
-        number.textContent = index + 1;
-        number.style.cssText = `
-            background: rgba(3,218,198,0.15);
-            color: #03dac6;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            margin-right: 16px;
-            flex-shrink: 0;
-            margin-top: 2px;
-        `;
-        
-        const textContainer = document.createElement('div');
-        
-        const stepTitle = document.createElement('div');
-        stepTitle.textContent = item.title;
-        stepTitle.style.cssText = `
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: #fff;
-        `;
-        
-        const stepDesc = document.createElement('div');
-        stepDesc.textContent = item.desc;
-        stepDesc.style.cssText = `
-            font-size: 14px;
-            color: #aaa;
-            line-height: 1.5;
-        `;
-        
-        textContainer.appendChild(stepTitle);
-        textContainer.appendChild(stepDesc);
-        
-        step.appendChild(number);
-        step.appendChild(textContainer);
-        content.appendChild(step);
-    });
-    
-    container.appendChild(content);
-    return container;
-}
-
-/**
- * Creates a nested transaction warning
- * @param {Object} nestedInfo - Information about the nested transaction
- * @returns {HTMLElement} Nested transaction warning element
- */
-function createNestedTransactionWarning(nestedInfo) {
-    const container = document.createElement('div');
-    container.style.cssText = `
-        background: linear-gradient(135deg, rgba(255,82,82,0.15) 0%, rgba(255,82,82,0.05) 100%);
-        border-radius: 12px;
-        overflow: hidden;
-        margin-bottom: 24px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    `;
-    
-    // Header
-    const header = document.createElement('div');
-    header.style.cssText = `
-        padding: 16px 20px;
-        background: rgba(255,82,82,0.2);
-        border-bottom: 1px solid rgba(255,82,82,0.3);
-        display: flex;
-        align-items: center;
-    `;
-    
-    const icon = document.createElement('span');
-    icon.textContent = '⚠️';
-    icon.style.cssText = 'font-size: 20px; margin-right: 12px;';
-    
-    const title = document.createElement('h3');
-    title.textContent = 'NESTED TRANSACTION DETECTED';
-    title.style.cssText = `
-        margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: #ff5252;
-    `;
-    
-    header.appendChild(icon);
-    header.appendChild(title);
-    container.appendChild(header);
-    
-    // Content
-    const content = document.createElement('div');
-    content.style.cssText = `padding: 20px;`;
-    
-    const warning = document.createElement('p');
-    warning.textContent = 'This transaction approves the execution of another transaction. This could be used to execute malicious code. Please verify both transactions carefully.';
-    warning.style.cssText = `
-        margin: 0 0 20px 0;
-        line-height: 1.6;
-        color: #fff;
-    `;
-    
-    content.appendChild(warning);
-    
-    // Nested transaction info
-    const infoTitle = document.createElement('div');
-    infoTitle.textContent = 'Nested Transaction Details';
-    infoTitle.style.cssText = `
-        font-weight: 600;
-        margin-bottom: 12px;
-        color: #fff;
-    `;
-    content.appendChild(infoTitle);
-    
-    // Add nested info
-    const infoTable = document.createElement('div');
-    infoTable.style.cssText = `
-        background: rgba(0,0,0,0.2);
-        border-radius: 8px;
-        overflow: hidden;
-        font-size: 14px;
-    `;
-    
-    const info = [
-        { key: 'Safe Address', value: nestedInfo.safe },
-        { key: 'Nonce', value: nestedInfo.nonce },
-        { key: 'Transaction Hash', value: nestedInfo.hash }
-    ];
-    
-    info.forEach((item, index) => {
-        const row = document.createElement('div');
-        row.style.cssText = `
-            display: flex;
-            ${index < info.length - 1 ? 'border-bottom: 1px solid rgba(255,255,255,0.05);' : ''}
-        `;
-        
-        const keyCell = document.createElement('div');
-        keyCell.textContent = item.key;
-        keyCell.style.cssText = `
-            width: 140px;
-            padding: 10px 16px;
-            color: #ff8a80;
-            font-weight: 500;
-            flex-shrink: 0;
-        `;
-        
-        const valueCell = document.createElement('div');
-        valueCell.style.cssText = `
-            flex: 1;
-            padding: 10px 16px;
-            word-break: break-all;
-            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-        `;
-        
-        // Check for verified addresses
-        if (typeof item.value === 'string' && item.value.includes(' ✅')) {
-            const parts = item.value.split(' (');
-            const address = document.createElement('span');
-            address.textContent = parts[0];
-            
-            valueCell.appendChild(address);
-            
-            if (parts.length > 1) {
-                const verified = document.createElement('span');
-                verified.innerHTML = ` (<span style="color: #03dac6; font-weight: 500;">${parts[1]}</span>`;
-                valueCell.appendChild(verified);
-            }
-        } else {
-            valueCell.textContent = item.value;
-        }
-        
-        row.appendChild(keyCell);
-        row.appendChild(valueCell);
-        infoTable.appendChild(row);
-    });
-    
-    content.appendChild(infoTable);
-    container.appendChild(content);
-    
-    return container;
-}
-
-/**
- * Creates a verification result view
- * @param {Object} result - The verification result data
- * @returns {HTMLElement} The complete verification result element
- */
-function createVerificationResult(result) {
-    const container = createResultContainer();
-    container.appendChild(createVerificationHeader("Transaction Verification"));
-    
-    // Create tab navigation
-    const tabs = createTabNavigation(["Transaction Summary", "Function Calls", "Security Hashes"]);
-    container.appendChild(tabs.tabContainer);
-    container.appendChild(tabs.contentSections[0].parentElement);
-    
-    // Tab 1: Transaction Summary
-    const summaryTab = tabs.contentSections[0];
-    
-    // Add status banner or warning
-    if (result.hasNestedTransaction) {
-        summaryTab.appendChild(createStatusBanner(true));
-    } else {
-        summaryTab.appendChild(createStatusBanner(false));
-    }
-    
-    // Add basic transaction info
-    summaryTab.appendChild(createInfoCard("Transaction Details", result.basicInfo, { type: 'table' }));
-    
-    // Add nested transaction warning if needed
-    if (result.hasNestedTransaction) {
-        summaryTab.appendChild(createNestedTransactionWarning(result.nestedInfo));
-    }
-    
-    // Add verification instructions
-    summaryTab.appendChild(createVerificationInstructions());
-    
-    // Tab 2: Function Calls
-    const callsTab = tabs.contentSections[1];
-    
-    if (result.callDetails) {
-        // Display main function call
-        callsTab.appendChild(createFunctionCall(result.callDetails));
-    } else {
-        // Display no function calls message
-        const noCallsMsg = document.createElement('div');
-        noCallsMsg.textContent = 'No function calls to display for this transaction.';
-        noCallsMsg.style.cssText = `
-            padding: 24px;
-            text-align: center;
-            color: #888;
-            font-style: italic;
-        `;
-        callsTab.appendChild(noCallsMsg);
-    }
-    
-    // Tab 3: Security Hashes
-    const hashesTab = tabs.contentSections[2];
-    
-    // Add security explanation
-    const hashExplanation = document.createElement('div');
-    hashExplanation.style.cssText = `
-        margin-bottom: 24px;
-        background: rgba(0,0,0,0.2);
-        border-radius: 12px;
-        padding: 16px 20px;
-    `;
-    
-    const hashTitle = document.createElement('h4');
-    hashTitle.textContent = 'What are these hashes?';
-    hashTitle.style.cssText = `
-        margin: 0 0 8px 0;
-        font-size: 16px;
-        color: #fff;
-    `;
-    
-    const hashDesc = document.createElement('p');
-    hashDesc.textContent = 'These cryptographic hashes uniquely identify this transaction. Before approving, verify they match exactly what your hardware wallet displays.';
-    hashDesc.style.cssText = `
-        margin: 0;
-        font-size: 14px;
-        color: #aaa;
-        line-height: 1.5;
-    `;
-    
-    hashExplanation.appendChild(hashTitle);
-    hashExplanation.appendChild(hashDesc);
-    hashesTab.appendChild(hashExplanation);
-    
-    // Add hashes card
-    hashesTab.appendChild(createInfoCard("Verification Hashes", result.hashes, { type: 'hash' }));
-    
-    return container;
-}
-
-/**
  * Creates a modern transaction verification view from first principles
  * @param {Object} result - The verification result data
  * @returns {HTMLElement} The complete transaction verification UI
  */
 function createVerificationResult(result) {
-    // First format the data from our result object
+    // Format the data
     const formattedData = formatResultForDisplay(result);
     
-    // Create container with clean modern styling
+    // Create container
     const container = document.createElement('div');
     container.style.cssText = `
         font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: #121212;
-        color: #fff;
+        background: #ffffff;
+        color: #1f2937;
         border-radius: 16px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
         max-width: 960px;
         margin: 0 auto;
         overflow: hidden;
+        --primary-color: ${formattedData.hasNestedTransaction ? '#ef4444' : '#10b981'};
+        --bg-subtle: ${formattedData.hasNestedTransaction ? '#fff5f5' : '#f0fdf4'};
+        --bg-strong: ${formattedData.hasNestedTransaction ? '#fee2e2' : '#dcfce7'};
     `;
     
-    // Create header with security status
-    const header = document.createElement('div');
-    header.style.cssText = `
-        padding: 32px;
-        position: relative;
-        background: ${formattedData.hasNestedTransaction ? 
-            'linear-gradient(135deg, #470000 0%, #1a1a1a 100%)' : 
-            'linear-gradient(135deg, #003a34 0%, #1a1a1a 100%)'};
-    `;
+    // Status banner
+    container.appendChild(createStatusBanner(formattedData));
     
-    // Security indicator
-    const securityIndicator = document.createElement('div');
-    securityIndicator.className = 'security-indicator'; 
-    securityIndicator.style.cssText = `
-        display: flex;
-        align-items: center;
-        margin-bottom: 16px;
-    `;
+    // Transaction summary
+    container.appendChild(createTransactionSummary(formattedData));
     
-    const indicatorIcon = document.createElement('div');
-    indicatorIcon.innerHTML = formattedData.hasNestedTransaction ? '⚠️' : '🔒';
-    indicatorIcon.style.cssText = 'font-size: 24px; margin-right: 12px;';
-    
-    const indicatorText = document.createElement('div');
-    indicatorText.style.cssText = 'font-weight: 600; font-size: 14px;';
-    indicatorText.innerHTML = formattedData.hasNestedTransaction ? 
-        '<span style="color: #ff5252;">REQUIRES CAREFUL REVIEW</span>' : 
-        '<span style="color: #03dac6;">STANDARD TRANSACTION</span>';
-    
-    securityIndicator.appendChild(indicatorIcon);
-    securityIndicator.appendChild(indicatorText);
-    header.appendChild(securityIndicator);
-    
-    // Header title
-    const title = document.createElement('h1');
-    title.textContent = 'Transaction Verification';
-    title.style.cssText = 'font-size: 28px; margin: 0 0 8px 0; font-weight: 700;';
-    header.appendChild(title);
-    
-    // Security warning for nested transactions
-    if (formattedData.hasNestedTransaction) {
-        const nestedWarning = document.createElement('div');
-        nestedWarning.style.cssText = `
-            margin-top: 16px;
-            background: rgba(255,82,82,0.15);
-            border-left: 4px solid #ff5252;
-            padding: 12px 16px;
-            border-radius: 4px;
-            font-size: 14px;
-        `;
-        nestedWarning.innerHTML = '<strong>Warning:</strong> This transaction approves another transaction. Verify both carefully.';
-        header.appendChild(nestedWarning);
-    }
-    
-    container.appendChild(header);
-    
-    // Create body content
-    const body = document.createElement('div');
-    body.style.cssText = `
+    // Main content area
+    const contentArea = document.createElement('div');
+    contentArea.style.cssText = `
+        padding: 24px;
         display: flex;
         flex-direction: column;
         gap: 24px;
-        padding: 32px;
-        background: #1a1a1a;
     `;
     
-    // Transaction Card - includes core transaction information
-    const txCard = createTransactionCard(formattedData.basicInfo);
-    body.appendChild(txCard);
+    // Transaction details
+    contentArea.appendChild(createDetailsSection(formattedData));
     
-    // Function Call Card - includes what this transaction is doing
+    // Function call information
     if (formattedData.callDetails) {
-        const functionCard = createFunctionCallCard(formattedData.callDetails);
-        body.appendChild(functionCard);
+        contentArea.appendChild(createFunctionCallSection(formattedData.callDetails));
     }
     
-    // Nested Transaction Card - if this transaction contains another tx
+    // Nested transaction warning (if present)
     if (formattedData.hasNestedTransaction) {
-        const nestedCard = createNestedTransactionCard(formattedData.nestedInfo);
-        body.appendChild(nestedCard);
+        contentArea.appendChild(createNestedTransactionSection(formattedData.nestedInfo));
     }
     
-    // Security Hash Card - important verification information
-    const hashCard = createSecurityHashCard(formattedData.hashes);
-    body.appendChild(hashCard);
+    // Security verification section
+    contentArea.appendChild(createSecuritySection(formattedData.hashes));
     
-    // Verification Checklist
-    body.appendChild(createVerificationChecklist());
-    
-    container.appendChild(body);
+    container.appendChild(contentArea);
     return container;
 }
 
 /**
- * Creates a card showing transaction details
- * @param {Object} txInfo - Basic transaction information
- * @returns {HTMLElement} Transaction card element
+ * Creates the status banner showing risk level
+ * @param {Object} data - The formatted data
+ * @returns {HTMLElement} Status banner element
  */
-function createTransactionCard(txInfo) {
-    const card = document.createElement('div');
-    card.style.cssText = `
-        background: #242424;
+function createStatusBanner(data) {
+    const banner = document.createElement('div');
+    banner.style.cssText = `
+        background: var(--bg-strong);
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+    `;
+    
+    // Status information
+    const statusInfo = document.createElement('div');
+    statusInfo.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    `;
+    
+    // Status icon
+    const statusIcon = document.createElement('div');
+    statusIcon.innerHTML = data.hasNestedTransaction ? 
+        '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 9V12M12 16H12.01M8.21 13.89L7 23L12 20L17 23L15.79 13.88M11.5 3.08C11.82 3.03 12.18 3.03 12.5 3.08C15.1 3.4 17 5.62 17 8.28V9.61C17 9.8 17 9.9 17.04 9.98C17.07 10.06 17.11 10.12 17.21 10.24C17.3 10.36 17.42 10.47 17.67 10.67L18.93 11.69C19.45 12.11 19.5 12.88 19.05 13.37L18.04 14.47C17.82 14.72 17.47 14.88 17.09 14.89C16.7 14.9 16.31 14.75 16.06 14.5C16 14.44 15.95 14.39 15.92 14.35C15.89 14.32 15.88 14.31 15.87 14.29C15.86 14.28 15.85 14.27 15.84 14.24C15.78 14.13 15.77 14.02 15.77 13.89V8.28C15.77 6.38 14.58 4.75 12.93 4.53C12.65 4.49 12.35 4.49 12.07 4.53C10.42 4.75 9.23 6.38 9.23 8.28V13.89C9.23 14.02 9.22 14.13 9.16 14.24C9.15 14.27 9.14 14.28 9.13 14.29C9.12 14.31 9.11 14.32 9.08 14.35C9.05 14.39 9 14.44 8.94 14.5C8.69 14.75 8.3 14.9 7.91 14.89C7.53 14.88 7.18 14.72 6.96 14.47L5.95 13.37C5.5 12.88 5.55 12.11 6.07 11.69L7.33 10.67C7.58 10.47 7.7 10.36 7.79 10.24C7.89 10.12 7.93 10.06 7.96 9.98C8 9.9 8 9.8 8 9.61V8.28C8 5.62 9.9 3.4 12.5 3.08C12.18 3.03 11.82 3.03 11.5 3.08Z" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : 
+        '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 12.75L11.25 15L15 9.75M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    
+    // Status text
+    const statusText = document.createElement('div');
+    statusText.style.cssText = `
+        font-weight: 600;
+    `;
+    
+    if (data.hasNestedTransaction) {
+        statusText.innerHTML = '<span style="color: #ef4444;">Requires Careful Review</span>';
+    } else {
+        statusText.innerHTML = '<span style="color: #10b981;">Standard Transaction</span>';
+    }
+    
+    statusInfo.appendChild(statusIcon);
+    statusInfo.appendChild(statusText);
+    banner.appendChild(statusInfo);
+    
+    return banner;
+}
+
+/**
+ * Creates a high-level transaction summary
+ * @param {Object} data - The formatted data
+ * @returns {HTMLElement} Transaction summary element
+ */
+function createTransactionSummary(data) {
+    const summary = document.createElement('div');
+    summary.style.cssText = `
+        padding: 24px;
+        background: var(--bg-subtle);
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+    `;
+    
+    // Summary heading
+    const heading = document.createElement('h1');
+    heading.textContent = 'Transaction Summary';
+    heading.style.cssText = `
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 16px 0;
+        color: var(--primary-color);
+    `;
+    summary.appendChild(heading);
+    
+    // Plain-language summary
+    const plainSummary = document.createElement('p');
+    plainSummary.style.cssText = `
+        font-size: 16px;
+        margin: 0 0 16px 0;
+        line-height: 1.5;
+    `;
+    
+    // Generate human-readable summary based on transaction type
+    let summaryText = "";
+    if (data.callDetails && data.callDetails.function) {
+        switch (data.callDetails.function) {
+            case "transfer":
+                if (data.callDetails.parsedData && data.callDetails.parsedData.to && data.callDetails.parsedData.amount) {
+                    summaryText = `Send ${data.callDetails.parsedData.amount} to ${formatAddress(data.callDetails.parsedData.to)}`;
+                } else {
+                    summaryText = "Transfer tokens";
+                }
+                break;
+            case "approve":
+                if (data.callDetails.parsedData && data.callDetails.parsedData.spender) {
+                    summaryText = `Allow ${formatAddress(data.callDetails.parsedData.spender)} to spend your tokens`;
+                } else {
+                    summaryText = "Approve token spending";
+                }
+                break;
+            default:
+                summaryText = `Call "${data.callDetails.function}" on ${formatAddress(data.callDetails.target)}`;
+        }
+    } else if (data.basicInfo && data.basicInfo.value && parseFloat(data.basicInfo.value) > 0) {
+        summaryText = `Send ${data.basicInfo.value} to ${formatAddress(data.basicInfo.to)}`;
+    } else {
+        summaryText = "Interact with smart contract";
+    }
+    
+    plainSummary.textContent = summaryText;
+    summary.appendChild(plainSummary);
+    
+    // Warning for nested transactions
+    if (data.hasNestedTransaction) {
+        const warning = document.createElement('div');
+        warning.style.cssText = `
+            background: rgba(239,68,68,0.1);
+            border-left: 4px solid #ef4444;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-top: 16px;
+            line-height: 1.5;
+        `;
+        warning.innerHTML = '<strong>Caution:</strong> This transaction contains nested operations that will execute additional code. Review all details carefully before approving.';
+        summary.appendChild(warning);
+    }
+    
+    return summary;
+}
+
+/**
+ * Creates the transaction details section
+ * @param {Object} data - The formatted data
+ * @returns {HTMLElement} Details section element
+ */
+function createDetailsSection(data) {
+    const section = document.createElement('div');
+    section.style.cssText = `
+        background: #ffffff;
         border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         overflow: hidden;
     `;
     
-    // Card header
+    // Section header
     const header = document.createElement('div');
     header.style.cssText = `
         padding: 16px 20px;
-        background: #2a2a2a;
-        border-bottom: 1px solid #333;
+        background: #f9fafb;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
+        display: flex;
+        align-items: center;
+        gap: 12px;
     `;
     
-    const title = document.createElement('h2');
-    title.textContent = 'Transaction Details';
-    title.style.cssText = `
+    // Header icon
+    const headerIcon = document.createElement('div');
+    headerIcon.innerHTML = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 7V9M10 13H10.01M3 17L5 5L10 3L15 5L17 17L10 19L3 17Z" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    
+    // Header text
+    const headerText = document.createElement('h2');
+    headerText.textContent = 'Transaction Details';
+    headerText.style.cssText = `
         margin: 0;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 600;
-        color: #fff;
+        color: #374151;
     `;
     
-    header.appendChild(title);
-    card.appendChild(header);
+    header.appendChild(headerIcon);
+    header.appendChild(headerText);
+    section.appendChild(header);
     
-    // Card content
+    // Content
     const content = document.createElement('div');
-    content.style.cssText = `padding: 20px;`;
+    content.style.cssText = `padding: 16px 20px;`;
     
-    // Create a table for transaction details
+    // Create a data table
     const table = document.createElement('div');
     table.style.cssText = `
-        width: 100%;
-        border-spacing: 0;
-        border-collapse: collapse;
-        font-size: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
     `;
     
     // Add each transaction detail as a row
-    Object.entries(txInfo).forEach(([key, value], index) => {
+    Object.entries(data.basicInfo).forEach(([key, value]) => {
         const row = document.createElement('div');
         row.style.cssText = `
             display: flex;
-            border-bottom: ${index < Object.keys(txInfo).length - 1 ? '1px solid #333' : 'none'};
+            align-items: flex-start;
         `;
         
         const keyCell = document.createElement('div');
         keyCell.style.cssText = `
-            width: 120px;
-            padding: 12px 16px;
-            color: #03dac6;
-            font-weight: 500;
+            width: 140px;
+            font-size: 14px;
+            color: #6b7280;
             flex-shrink: 0;
+            padding: 2px 0;
         `;
         
-        // Convert snake_case or camelCase to Title Case
+        // Format key name
         const formattedKey = key
             .replace(/([A-Z])/g, ' $1')
             .replace(/_/g, ' ')
@@ -1244,12 +271,14 @@ function createTransactionCard(txInfo) {
         const valueCell = document.createElement('div');
         valueCell.style.cssText = `
             flex: 1;
-            padding: 12px 16px;
+            font-size: 14px;
             word-break: break-all;
+            padding: 2px 0;
+            text-align: left;
         `;
         
-        // Special formatting for contract addresses and known addresses
-        if (typeof value === 'string' && value.includes(' ✓')) {
+        // Format value display
+        if (typeof value === 'string' && value.includes(' ✅')) {
             const parts = value.split(' (');
             const addressEl = document.createElement('div');
             addressEl.textContent = parts[0];
@@ -1259,7 +288,7 @@ function createTransactionCard(txInfo) {
             
             if (parts.length > 1) {
                 const verifiedEl = document.createElement('div');
-                verifiedEl.innerHTML = `<span style="color: #03dac6; font-weight: 500;">✓ ${parts[1].replace('✅)', '')}</span>`;
+                verifiedEl.innerHTML = `<span style="color: #10b981; font-weight: 500;">\u2713 ${parts[1].replace('✅)', '')}</span>`;
                 valueCell.appendChild(verifiedEl);
             }
         } else {
@@ -1272,98 +301,103 @@ function createTransactionCard(txInfo) {
     });
     
     content.appendChild(table);
-    card.appendChild(content);
-    return card;
+    section.appendChild(content);
+    
+    return section;
 }
 
 /**
- * Creates a card showing function call information
- * @param {Object} callDetails - Details of the function call
- * @returns {HTMLElement} Function call card element
+ * Creates the function call section
+ * @param {Object} callDetails - The function call details
+ * @returns {HTMLElement} Function call section element
  */
-function createFunctionCallCard(callDetails) {
-    const card = document.createElement('div');
-    card.style.cssText = `
-        background: #242424;
+function createFunctionCallSection(callDetails) {
+    const section = document.createElement('div');
+    section.style.cssText = `
+        background: #ffffff;
         border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         overflow: hidden;
     `;
     
-    // Card header
+    // Section header
     const header = document.createElement('div');
     header.style.cssText = `
         padding: 16px 20px;
-        background: #2a2a2a;
-        border-bottom: 1px solid #333;
+        background: #f9fafb;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
         display: flex;
         align-items: center;
+        gap: 12px;
     `;
     
-    const titleIcon = document.createElement('span');
-    titleIcon.textContent = '🔷';
-    titleIcon.style.cssText = 'font-size: 20px; margin-right: 12px;';
+    // Header icon
+    const headerIcon = document.createElement('div');
+    headerIcon.innerHTML = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 4H12V12H4V4Z M8 8H16V16H8V8Z" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     
-    const title = document.createElement('h2');
-    title.textContent = 'Function Call';
-    title.style.cssText = `
+    // Header text
+    const headerText = document.createElement('h2');
+    headerText.textContent = 'Function Call';
+    headerText.style.cssText = `
         margin: 0;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 600;
-        color: #fff;
+        color: #374151;
     `;
     
-    header.appendChild(titleIcon);
-    header.appendChild(title);
-    card.appendChild(header);
+    header.appendChild(headerIcon);
+    header.appendChild(headerText);
+    section.appendChild(header);
     
-    // Card content
+    // Content
     const content = document.createElement('div');
-    content.style.cssText = `padding: 20px;`;
+    content.style.cssText = `padding: 16px 20px;`;
     
-    // Function name
-    const functionName = document.createElement('div');
-    functionName.style.cssText = `
-        font-size: 18px;
-        font-weight: 600;
+    // Function signature
+    const functionSignature = document.createElement('div');
+    functionSignature.style.cssText = `
+        background: #f9fafb;
+        border-radius: 8px;
+        padding: 12px 16px;
         margin-bottom: 16px;
-        color: #bb86fc;
         font-family: monospace;
+        font-size: 14px;
+        color: #4f46e5;
     `;
-    functionName.textContent = callDetails.function || 'Unknown Function';
-    content.appendChild(functionName);
+    functionSignature.textContent = callDetails.function || 'Unknown Function';
+    content.appendChild(functionSignature);
     
-    // Target contract
+    // Target contract section
     const targetSection = document.createElement('div');
     targetSection.style.cssText = 'margin-bottom: 20px;';
     
     const targetLabel = document.createElement('div');
-    targetLabel.textContent = 'Target Contract';
+    targetLabel.textContent = 'Target Contract:';
     targetLabel.style.cssText = `
-        color: #a0a0a0;
         font-size: 14px;
+        font-weight: 500;
         margin-bottom: 8px;
-        text-align: center;
+        color: #374151;
     `;
     
     const targetValue = document.createElement('div');
     targetValue.style.cssText = `
-        background: rgba(0,0,0,0.2);
+        background: #f9fafb;
         padding: 12px;
         border-radius: 8px;
-        word-break: break-all;
         font-family: monospace;
-        margin-bottom: 16px;
+        font-size: 14px;
+        word-break: break-all;
     `;
     
     // Check if the target has a verified name
-    if (typeof callDetails.target === 'string' && callDetails.target.includes(' ✓')) {
+    if (typeof callDetails.target === 'string' && callDetails.target.includes(' ✅')) {
         const parts = callDetails.target.split(' (');
         targetValue.textContent = parts[0];
         
         if (parts.length > 1) {
             const verifiedName = document.createElement('div');
-            // Fix character: Replace ✅ with ✓ for consistent rendering
-            verifiedName.innerHTML = `<span style="color: #03dac6; font-weight: 500;">✓ ${parts[1].replace('✅)', '')}</span>`;
+            verifiedName.innerHTML = `<span style="color: #10b981; font-weight: 500;">\u2713 ${parts[1].replace('✅)', '')}</span>`;
             targetValue.appendChild(verifiedName);
         }
     } else {
@@ -1374,24 +408,25 @@ function createFunctionCallCard(callDetails) {
     targetSection.appendChild(targetValue);
     content.appendChild(targetSection);
     
-    // Parameters
+    // Parameters section (if any)
     if (callDetails.parsedData && Object.keys(callDetails.parsedData).length > 0) {
         const paramsSection = document.createElement('div');
         
         const paramsLabel = document.createElement('div');
-        paramsLabel.textContent = 'Parameters';
+        paramsLabel.textContent = 'Parameters:';
         paramsLabel.style.cssText = `
-            color: #a0a0a0;
             font-size: 14px;
+            font-weight: 500;
             margin-bottom: 8px;
+            color: #374151;
         `;
         
         paramsSection.appendChild(paramsLabel);
         
         const paramsTable = document.createElement('div');
         paramsTable.style.cssText = `
-            background: #1a1a1a;
-            border-radius: 6px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
             overflow: hidden;
         `;
         
@@ -1399,28 +434,43 @@ function createFunctionCallCard(callDetails) {
             const row = document.createElement('div');
             row.style.cssText = `
                 display: flex;
-                ${index < Object.keys(callDetails.parsedData).length - 1 ? 'border-bottom: 1px solid #333;' : ''}
-                padding: 12px;
+                ${index < Object.keys(callDetails.parsedData).length - 1 ? 'border-bottom: 1px solid #e5e7eb;' : ''}
             `;
             
             const keyCell = document.createElement('div');
             keyCell.textContent = key;
             keyCell.style.cssText = `
                 width: 120px;
-                color: #bb86fc;
-                font-weight: 500;
+                padding: 12px;
+                background: #f9fafb;
+                color: #4b5563;
                 font-family: monospace;
-                margin-right: 16px;
-                flex-shrink: 0;
+                border-right: 1px solid #e5e7eb;
+                font-size: 14px;
             `;
             
             const valueCell = document.createElement('div');
-            valueCell.textContent = value;
             valueCell.style.cssText = `
                 flex: 1;
+                padding: 12px;
                 word-break: break-all;
                 font-family: monospace;
+                font-size: 14px;
             `;
+            
+            // Special formatting for addresses with verification status
+            if (typeof value === 'string' && value.includes(' ✅')) {
+                const parts = value.split(' (');
+                valueCell.textContent = parts[0];
+                
+                if (parts.length > 1) {
+                    const verifiedInfo = document.createElement('div');
+                    verifiedInfo.innerHTML = `<span style="color: #10b981; font-weight: 500;">\u2713 ${parts[1].replace('✅)', '')}</span>`;
+                    valueCell.appendChild(verifiedInfo);
+                }
+            } else {
+                valueCell.textContent = value;
+            }
             
             row.appendChild(keyCell);
             row.appendChild(valueCell);
@@ -1431,81 +481,79 @@ function createFunctionCallCard(callDetails) {
         content.appendChild(paramsSection);
     }
     
-    card.appendChild(content);
-    return card;
+    section.appendChild(content);
+    return section;
 }
 
 /**
- * Creates a card showing nested transaction information
- * @param {Object} nestedInfo - Information about the nested transaction
- * @returns {HTMLElement} Nested transaction card element
+ * Creates the nested transaction section
+ * @param {Object} nestedInfo - The nested transaction information
+ * @returns {HTMLElement} Nested transaction section element
  */
-function createNestedTransactionCard(nestedInfo) {
-    const card = document.createElement('div');
-    card.style.cssText = `
-        background: #2d2024;
+function createNestedTransactionSection(nestedInfo) {
+    const section = document.createElement('div');
+    section.style.cssText = `
+        background: #fff5f5;
         border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         overflow: hidden;
-        border: 1px solid rgba(255,82,82,0.3);
+        border: 1px solid rgba(239,68,68,0.3);
     `;
     
-    // Card header with warning
+    // Section header
     const header = document.createElement('div');
     header.style.cssText = `
-        background: linear-gradient(to right, #3a1518, #2d1a1a);
         padding: 16px 20px;
-        border-bottom: 1px solid rgba(255,82,82,0.3);
+        background: rgba(239,68,68,0.1);
+        border-bottom: 1px solid rgba(239,68,68,0.2);
         display: flex;
         align-items: center;
+        gap: 12px;
     `;
     
-    const titleIcon = document.createElement('span');
-    titleIcon.textContent = '⚠️';
-    titleIcon.style.cssText = 'font-size: 20px; margin-right: 12px;';
+    // Header icon
+    const headerIcon = document.createElement('div');
+    headerIcon.innerHTML = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8.256 3.845a2.001 2.001 0 0 1 3.488 0c.311.627.95 1.074 1.675 1.078a1.999 1.999 0 0 1 1.743 3.022A2 2 0 0 0 15.87 10.5a2 2 0 0 0-.708 2.555 2 2 0 0 1-1.743 3.022c-.725.004-1.364.45-1.674 1.078a2 2 0 0 1-3.488 0c-.311-.627-.95-1.074-1.675-1.078a2 2 0 0 1-1.743-3.022A2 2 0 0 0 4.13 10.5a2 2 0 0 0 .708-2.555 2 2 0 0 1 1.743-3.022c.725-.004 1.364-.45 1.674-1.078zM10 11a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     
-    const title = document.createElement('h2');
-    title.textContent = 'Nested Transaction';
-    title.style.cssText = `
+    // Header text
+    const headerText = document.createElement('h2');
+    headerText.textContent = 'Nested Transaction';
+    headerText.style.cssText = `
         margin: 0;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 600;
-        color: #ff5252;
+        color: #ef4444;
     `;
     
-    header.appendChild(titleIcon);
-    header.appendChild(title);
-    card.appendChild(header);
+    header.appendChild(headerIcon);
+    header.appendChild(headerText);
+    section.appendChild(header);
     
-    // Card content
+    // Content
     const content = document.createElement('div');
-    content.style.cssText = `padding: 20px;`;
+    content.style.cssText = `padding: 16px 20px;`;
     
     // Warning message
     const warning = document.createElement('div');
     warning.style.cssText = `
         margin-bottom: 20px;
+        background: rgba(239,68,68,0.08);
+        border-radius: 8px;
+        padding: 12px 16px;
         line-height: 1.5;
+        font-size: 14px;
     `;
-    warning.textContent = 'This transaction contains another transaction. This is advanced functionality that could execute malicious code. Verify all details carefully.';
+    warning.innerHTML = '<strong>High-Risk Functionality:</strong> This transaction will execute additional code that could perform multiple operations. Always verify that you trust the contract and understand all operations it will perform.';
     content.appendChild(warning);
     
-    // Nested transaction details title
-    const detailsTitle = document.createElement('h3');
-    detailsTitle.textContent = 'Nested Transaction Details';
-    detailsTitle.style.cssText = `
-        margin: 0 0 16px 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: #ff8a80;
-    `;
-    content.appendChild(detailsTitle);
-    
-    // Details table
-    const table = document.createElement('div');
-    table.style.cssText = `
-        background: rgba(0,0,0,0.2);
+    // Nested details table
+    const detailsTable = document.createElement('div');
+    detailsTable.style.cssText = `
+        background: rgba(255,255,255,0.7);
         border-radius: 8px;
         overflow: hidden;
+        margin-bottom: 20px;
+        border: 1px solid rgba(239,68,68,0.2);
     `;
     
     // Add rows for each piece of nested transaction info
@@ -1519,18 +567,19 @@ function createNestedTransactionCard(nestedInfo) {
         const row = document.createElement('div');
         row.style.cssText = `
             display: flex;
-            ${index < info.length - 1 ? 'border-bottom: 1px solid rgba(255,255,255,0.1);' : ''}
-            align-items: flex-start;
+            ${index < info.length - 1 ? 'border-bottom: 1px solid rgba(239,68,68,0.2);' : ''}
         `;
         
         const keyCell = document.createElement('div');
         keyCell.textContent = key;
         keyCell.style.cssText = `
-            width: 120px;
+            width: 140px;
             padding: 12px 16px;
-            color: #ff8a80;
+            background: rgba(239,68,68,0.05);
+            color: #b91c1c;
             font-weight: 500;
             flex-shrink: 0;
+            font-size: 14px;
         `;
         
         const valueCell = document.createElement('div');
@@ -1539,17 +588,17 @@ function createNestedTransactionCard(nestedInfo) {
             padding: 12px 16px;
             word-break: break-all;
             font-family: monospace;
+            font-size: 14px;
         `;
         
         // Special formatting for addresses with verification status
-        if (typeof value === 'string' && value.includes(' ✓')) {
+        if (typeof value === 'string' && value.includes(' ✅')) {
             const parts = value.split(' (');
             valueCell.textContent = parts[0];
             
             if (parts.length > 1) {
                 const verifiedInfo = document.createElement('div');
-                // Fix character: Replace ✅ with ✓ for consistent rendering
-                verifiedInfo.innerHTML = `<span style="color: #03dac6; font-weight: 500;">✓ ${parts[1].replace('✅)', '')}</span>`;
+                verifiedInfo.innerHTML = `<span style="color: #10b981; font-weight: 500;">\u2713 ${parts[1].replace('✅)', '')}</span>`;
                 valueCell.appendChild(verifiedInfo);
             }
         } else {
@@ -1558,130 +607,151 @@ function createNestedTransactionCard(nestedInfo) {
         
         row.appendChild(keyCell);
         row.appendChild(valueCell);
-        table.appendChild(row);
+        detailsTable.appendChild(row);
     });
     
-    content.appendChild(table);
+    content.appendChild(detailsTable);
     
     // Nested function call if available
     if (nestedInfo.callDetails) {
-        const nestedFunctionSection = document.createElement('div');
-        nestedFunctionSection.style.cssText = 'margin-top: 20px;';
-        
         const nestedFunctionTitle = document.createElement('h3');
         nestedFunctionTitle.textContent = 'Nested Function Call';
         nestedFunctionTitle.style.cssText = `
-            margin: 0 0 16px 0;
-            font-size: 16px;
+            margin: 0 0 12px 0;
+            font-size: 15px;
             font-weight: 600;
-            color: #ff8a80;
+            color: #b91c1c;
         `;
+        content.appendChild(nestedFunctionTitle);
         
-        nestedFunctionSection.appendChild(nestedFunctionTitle);
-        
-        // Function name
-        const functionName = document.createElement('div');
-        functionName.style.cssText = `
-            background: rgba(0,0,0,0.2);
-            padding: 12px;
+        // Function signature
+        const functionSignature = document.createElement('div');
+        functionSignature.style.cssText = `
+            background: rgba(255,255,255,0.7);
+            border: 1px solid rgba(239,68,68,0.2);
             border-radius: 8px;
+            padding: 12px 16px;
             margin-bottom: 12px;
-            color: #bb86fc;
             font-family: monospace;
-            text-align: center;
+            font-size: 14px;
+            color: #4f46e5;
         `;
-        functionName.textContent = nestedInfo.callDetails.function || 'Unknown Function';
-        
-        nestedFunctionSection.appendChild(functionName);
+        functionSignature.textContent = nestedInfo.callDetails.function || 'Unknown Function';
+        content.appendChild(functionSignature);
         
         // Target contract if available
         if (nestedInfo.callDetails.target) {
             const targetLabel = document.createElement('div');
             targetLabel.textContent = 'Target:';
             targetLabel.style.cssText = `
-                color: #a0a0a0;
                 font-size: 14px;
+                font-weight: 500;
                 margin-bottom: 8px;
+                color: #374151;
             `;
             
             const targetValue = document.createElement('div');
             targetValue.style.cssText = `
-                background: rgba(0,0,0,0.2);
+                background: rgba(255,255,255,0.7);
+                border: 1px solid rgba(239,68,68,0.2);
                 padding: 12px;
                 border-radius: 8px;
                 word-break: break-all;
                 font-family: monospace;
-                margin-bottom: 16px;
+                font-size: 14px;
             `;
             targetValue.textContent = nestedInfo.callDetails.target;
             
-            nestedFunctionSection.appendChild(targetLabel);
-            nestedFunctionSection.appendChild(targetValue);
+            content.appendChild(targetLabel);
+            content.appendChild(targetValue);
         }
-        
-        content.appendChild(nestedFunctionSection);
     }
     
-    card.appendChild(content);
-    return card;
+    section.appendChild(content);
+    return section;
 }
 
 /**
- * Creates a card showing security hash information
- * @param {Object} hashes - Hash information for the transaction
- * @returns {HTMLElement} Security hash card element
+ * Creates the security verification section
+ * @param {Object} hashes - The transaction hashes
+ * @returns {HTMLElement} Security section element
  */
-function createSecurityHashCard(hashes) {
-    const card = document.createElement('div');
-    card.style.cssText = `
-        background: #242424;
+function createSecuritySection(hashes) {
+    const section = document.createElement('div');
+    section.style.cssText = `
+        background: #ffffff;
         border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         overflow: hidden;
     `;
     
-    // Card header
+    // Section header
     const header = document.createElement('div');
     header.style.cssText = `
         padding: 16px 20px;
-        background: #2a2a2a;
-        border-bottom: 1px solid #333;
+        background: #f9fafb;
+        border-bottom: 1px solid rgba(0,0,0,0.05);
         display: flex;
         align-items: center;
+        gap: 12px;
     `;
     
-    const titleIcon = document.createElement('span');
-    titleIcon.textContent = '🔐';
-    titleIcon.style.cssText = 'font-size: 20px; margin-right: 12px;';
+    // Header icon
+    const headerIcon = document.createElement('div');
+    headerIcon.innerHTML = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 10.0001H15M5 10.0001C3.89543 10.0001 3 9.10463 3 8.00006V6.00006C3 4.89549 3.89543 4.00006 5 4.00006H15C16.1046 4.00006 17 4.89549 17 6.00006V8.00006C17 9.10463 16.1046 10.0001 15 10.0001M5 10.0001C3.89543 10.0001 3 10.8955 3 12.0001V14.0001C3 15.1046 3.89543 16.0001 5 16.0001H15C16.1046 16.0001 17 15.1046 17 14.0001V12.0001C17 10.8955 16.1046 10.0001 15 10.0001M10 7.00006V7.00998M10 13.0001V13.01" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     
-    const title = document.createElement('h2');
-    title.textContent = 'Security Verification';
-    title.style.cssText = `
+    // Header text
+    const headerText = document.createElement('h2');
+    headerText.textContent = 'Hardware Wallet Verification';
+    headerText.style.cssText = `
         margin: 0;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 600;
-        color: #fff;
+        color: #374151;
     `;
     
-    header.appendChild(titleIcon);
-    header.appendChild(title);
-    card.appendChild(header);
+    header.appendChild(headerIcon);
+    header.appendChild(headerText);
+    section.appendChild(header);
     
-    // Card content
+    // Content
     const content = document.createElement('div');
-    content.style.cssText = `padding: 20px;`;
+    content.style.cssText = `padding: 16px 20px;`;
     
-    // Hash explanation
-    const explanation = document.createElement('div');
-    explanation.style.cssText = `
-        margin-bottom: 20px;
-        line-height: 1.5;
-        color: #a0a0a0;
-        font-size: 14px;
+    // Verification guidance
+    const guidance = document.createElement('div');
+    guidance.style.cssText = `
+        background: #f3f4f6;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 24px;
+        border-left: 4px solid #10b981;
     `;
-    explanation.textContent = 'These cryptographic hashes uniquely identify this transaction. Verify they match exactly what your hardware wallet displays.';
-    content.appendChild(explanation);
     
-    // Add each hash
+    guidance.innerHTML = `
+        <p style="margin: 0 0 12px 0; font-weight: 600; font-size: 15px; color: #374151;">Verification Checklist:</p>
+        <ol style="margin: 0; padding-left: 24px; font-size: 14px; line-height: 1.6; color: #4b5563; text-align: left;">
+            <li>Check that all transaction details match your expectations</li>
+            <li>Verify all contract addresses are correct and verified</li>
+            <li>Confirm the hash values below match exactly what appears on your hardware wallet</li>
+            <li>If this transaction contains nested operations, review them with extra caution</li>
+        </ol>
+    `;
+    
+    content.appendChild(guidance);
+    
+    // Hash values section
+    const hashesTitle = document.createElement('div');
+    hashesTitle.textContent = 'Compare these values with your hardware wallet:';
+    hashesTitle.style.cssText = `
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 16px;
+        color: #374151;
+    `;
+    content.appendChild(hashesTitle);
+    
+    // Hash boxes
     Object.entries(hashes).forEach(([key, value]) => {
         const hashContainer = document.createElement('div');
         hashContainer.style.cssText = 'margin-bottom: 16px;';
@@ -1689,181 +759,63 @@ function createSecurityHashCard(hashes) {
         const hashLabel = document.createElement('div');
         hashLabel.textContent = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
         hashLabel.style.cssText = `
-            font-weight: 500;
+            font-size: 13px;
             margin-bottom: 8px;
-            color: #bb86fc;
+            color: #6b7280;
         `;
         
         const hashBox = document.createElement('div');
         hashBox.style.cssText = `
-            background: rgba(0,0,0,0.2);
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 12px 16px;
             position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
         `;
         
         const hashText = document.createElement('code');
         hashText.textContent = value;
         hashText.style.cssText = `
             font-family: monospace;
-            color: #03dac6;
+            color: #1f2937;
             font-size: 14px;
             word-break: break-all;
-            flex: 1;
-            margin-right: 12px;
         `;
-        
-        const copyBtn = document.createElement('button');
-        copyBtn.textContent = 'Copy';
-        copyBtn.style.cssText = `
-            background: #333;
-            border: none;
-            color: #fff;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            flex-shrink: 0;
-        `;
-        
-        copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(value);
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
-        });
         
         hashBox.appendChild(hashText);
-        hashBox.appendChild(copyBtn);
         
         hashContainer.appendChild(hashLabel);
         hashContainer.appendChild(hashBox);
         content.appendChild(hashContainer);
     });
     
-    card.appendChild(content);
-    return card;
+    section.appendChild(content);
+    return section;
 }
 
 /**
- * Creates a verification checklist
- * @returns {HTMLElement} Verification checklist element
+ * Helper function to format addresses with ellipsis in the middle
+ * @param {string} address - The address to format
+ * @returns {string} Formatted address
  */
-function createVerificationChecklist() {
-    const card = document.createElement('div');
-    card.className = 'verification-checklist';
-    card.style.cssText = `
-        background: rgba(3,218,198,0.1);
-        border-radius: 12px;
-        overflow: hidden;
-    `;
+function formatAddress(address) {
+    if (!address || typeof address !== 'string') return 'Unknown Address';
     
-    // Card header
-    const header = document.createElement('div');
-    header.style.cssText = `
-        padding: 16px 20px;
-        background: rgba(3,218,198,0.2);
-        border-bottom: 1px solid rgba(3,218,198,0.2);
-        display: flex;
-        align-items: center;
-    `;
-    
-    const icon = document.createElement('span');
-    icon.textContent = '🔍';
-    icon.style.cssText = 'font-size: 20px; margin-right: 12px;';
-    
-    const title = document.createElement('h2');
-    title.textContent = 'Verification Checklist';
-    title.style.cssText = `
-        margin: 0;
-        font-size: 18px;
-        font-weight: 600;
-        color: #03dac6;
-    `;
-    
-    header.appendChild(icon);
-    header.appendChild(title);
-    card.appendChild(header);
-    
-    // Card content with verification steps
-    const content = document.createElement('div');
-    content.style.cssText = `padding: 20px;`;
-    
-    const steps = [
-        {
-            number: 1,
-            title: "Check transaction details",
-            desc: "Verify all transaction details exactly match what you expect to approve."
-        },
-        {
-            number: 2,
-            title: "Verify contract addresses",
-            desc: "Ensure all contract addresses are verified and match expected contracts."
-        },
-        {
-            number: 3,
-            title: "Check security hashes",
-            desc: "The hashes shown on your hardware wallet must exactly match those shown here."
-        },
-        {
-            number: 4,
-            title: "Exercise caution with nested transactions",
-            desc: "Nested transactions can be complex and require careful review."
+    // Handle addresses with verification info
+    if (address.includes(' (')) {
+        const parts = address.split(' (');
+        const addr = parts[0];
+        const name = parts[1].replace('✅)', '');
+        
+        if (addr.length > 12) {
+            return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)} (${name})`;
         }
-    ];
+        return address;
+    }
     
-    steps.forEach((step, index) => {
-        const stepEl = document.createElement('div');
-        stepEl.style.cssText = `
-            display: flex;
-            align-items: flex-start;
-            margin-bottom: ${index < steps.length - 1 ? '16px' : '0'};
-        `;
-        
-        const stepNumber = document.createElement('div');
-        stepNumber.textContent = step.number;
-        stepNumber.style.cssText = `
-            background: rgba(3,218,198,0.2);
-            color: #03dac6;
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            margin-right: 16px;
-            flex-shrink: 0;
-        `;
-        
-        const stepContent = document.createElement('div');
-        
-        const stepTitle = document.createElement('div');
-        stepTitle.textContent = step.title;
-        stepTitle.style.cssText = `
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: #fff;
-        `;
-        
-        const stepDesc = document.createElement('div');
-        stepDesc.textContent = step.desc;
-        stepDesc.style.cssText = `
-            color: #aaa;
-            font-size: 14px;
-            line-height: 1.5;
-        `;
-        
-        stepContent.appendChild(stepTitle);
-        stepContent.appendChild(stepDesc);
-        
-        stepEl.appendChild(stepNumber);
-        stepEl.appendChild(stepContent);
-        content.appendChild(stepEl);
-    });
-    
-    card.appendChild(content);
-    return card;
+    // Regular address
+    if (address.length > 12) {
+        return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+    }
+    return address;
 }
