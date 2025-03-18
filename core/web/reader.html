@@ -199,7 +199,7 @@
     </style>
 
     <!-- External libraries -->
-    <script src="/lib/scanbot/ScanbotSDK.ui2.min.js"></script>
+    <script src="/lib/qrscanner/qr-scanner.umd.min.js"></script>
     <script src="/lib/fflate/index.min.js"></script>
     <script src="/lib/erasure/erasure.js"></script>
 </head>
@@ -228,8 +228,7 @@
         
         // ===== CONSTANTS =====
         const CONFIG = {
-            LICENSE_KEY: "", // Your Scanbot license key goes here
-            ENGINE_PATH: "/lib/scanbot/engine/"
+            // No configuration needed for qr-scanner UMD
         };
 
         const LAYOUT = {
@@ -257,8 +256,7 @@
             allowedFailures: 0,      // Number of failures allowed by erasure coding
             totalShares: 0,          // Total shares in the transaction
             lastScanned: "",         // Text of last scanned QR code
-            scanbotSDK: null,        // Reference to Scanbot SDK
-            barcodeScanner: null,    // Reference to barcode scanner
+            qrScanner: null,         // Reference to QR Scanner
             fullData: null,          // Reconstructed data
             expectedFullChecksum: null, // Expected checksum of full data
             latestReceivedPart: null, // Most recently received share number
@@ -312,27 +310,34 @@
         // ===== INITIALIZATION =====
         
         /**
-         * Initializes the Scanbot SDK and barcode scanner
+         * Initializes the QR Scanner
          */
         async function initializeScanner() {
             try {
-                state.scanbotSDK = await ScanbotSDK.initialize({
-                    licenseKey: CONFIG.LICENSE_KEY,
-                    enginePath: CONFIG.ENGINE_PATH,
-                });
+                // Create video element for the scanner
+                const videoElem = document.createElement('video');
+                videoElem.style.width = '100%';
+                videoElem.style.height = '100%';
+                videoElem.style.objectFit = 'cover';
+                DOM.cameraContainer.appendChild(videoElem);
                 
-                state.barcodeScanner = await state.scanbotSDK.createBarcodeScanner({
-                    containerId: "scanbot-camera-container",
-                    onBarcodesDetected: handleBarcodesDetected,
-                    barcodeFormats: ["QR_CODE"],
-                    preferredCamera: "environment",
-                    captureDelay: 10,
-                    userGuidance: {
-                        visible: false
+                // Create QR scanner instance with UMD version
+                state.qrScanner = new QrScanner(
+                    videoElem, 
+                    handleQrScan,
+                    {
+                        returnDetailedScanResult: true,
+                        preferredCamera: 'environment',
+                        maxScansPerSecond: 10,
+                        highlightScanRegion: true,
+                        highlightCodeOutline: true
                     }
-                });
+                );
+                
+                // Start scanning
+                await state.qrScanner.start();
             } catch (error) {
-                console.error("Error initializing Scanbot SDK:", error);
+                console.error("Error initializing QR Scanner:", error);
             }
         }
 
@@ -436,14 +441,14 @@
         // ===== DATA PROCESSING =====
 
         /**
-         * Handles QR codes detected by the scanner
-         * @param {Object} result - Detection result from Scanbot SDK
+         * Handles QR code scan results
+         * @param {Object} result - Scan result with data property containing the QR content
          */
-        async function handleBarcodesDetected(result) {
-            if (!result.barcodes || result.barcodes.length === 0) return;
-
-            const barcode = result.barcodes[0];
-            const decodedText = barcode.text;
+        async function handleQrScan(result) {
+            // Skip if no data
+            if (!result || !result.data) return;
+            
+            const decodedText = result.data;
             
             // Skip duplicate scans
             if (decodedText === state.lastScanned) return;
@@ -481,10 +486,10 @@
                     state.receivedShares[qrData.part] = qrData.data;
                     state.latestReceivedPart = qrData.part;
                     updateShardIndicators();
-                    
+
                     // Check if we have enough shares to reconstruct
                     const receivedCount = Object.keys(state.receivedShares).length;
-                    if (receivedCount >= state.originalBlobs) {
+                    if (receivedCount >= state.originalBlobs + state.allowedFailures) {
                         await reconstructSecretAndVerify();
                     }
                 } else {
@@ -533,7 +538,7 @@
                 // Verify the reconstructed data with the checksum
                 const base64ReconstructedData = uint8ArrayToBase64(reconstructedData);
                 const calculatedFullChecksum = await calculateSHA256(base64ReconstructedData);
-                
+
                 if (calculatedFullChecksum !== state.expectedFullChecksum) {
                     console.error("Checksum verification failed");
                     return;
@@ -549,8 +554,8 @@
                 shards.forEach(shard => markShardReceived(shard));
                 
                 // Update UI and cleanup
-                if (state.barcodeScanner) {
-                    state.barcodeScanner.dispose();
+                if (state.qrScanner) {
+                    state.qrScanner.stop();
                 }
                 
                 // Show completion state
@@ -615,8 +620,8 @@
         // ===== EVENT HANDLERS =====
         window.addEventListener('DOMContentLoaded', initializeScanner);
         window.addEventListener('beforeunload', () => {
-            if (state.barcodeScanner) {
-                state.barcodeScanner.dispose();
+            if (state.qrScanner) {
+                state.qrScanner.destroy();
             }
         });
     </script>
