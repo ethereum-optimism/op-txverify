@@ -1,13 +1,13 @@
-import { ethers } from '../lib/ethers/index.js';
-import { DOMAIN_SEPARATOR_TYPEHASH, SAFE_TX_TYPEHASH } from './constants.js';
+// Global functions for hashing
 
 /**
  * Calculates the EIP-712 domain hash for a Safe transaction
  * @param {Object} tx - The Safe transaction object
  * @returns {string} - The hex-encoded domain hash
  */
-export function calculateDomainHash(tx) {
-  // Pack domain values similar to the Go implementation
+function calculateDomainHash(tx) {
+  // Pack domain values
+  // Note: This implementation assumes ethers.js is loaded globally
   const encodedData = ethers.utils.defaultAbiCoder.encode(
     ['bytes32', 'uint256', 'address'],
     [
@@ -26,11 +26,11 @@ export function calculateDomainHash(tx) {
  * @param {Object} tx - The Safe transaction object
  * @returns {string} - The hex-encoded message hash
  */
-export function calculateMessageHash(tx) {
+function calculateMessageHash(tx) {
   // Calculate data hash
   const dataHash = ethers.utils.keccak256(tx.data || '0x');
   
-  // Pack message values similar to the Go implementation
+  // Pack message values
   const encodedData = ethers.utils.defaultAbiCoder.encode(
     ['bytes32', 'address', 'uint256', 'bytes32', 'uint8', 'uint256', 'uint256', 'uint256', 'address', 'address', 'uint256'],
     [
@@ -39,11 +39,11 @@ export function calculateMessageHash(tx) {
       ethers.BigNumber.from(tx.value),
       dataHash,
       tx.operation,
-      ethers.BigNumber.from(tx.safeTxGas),
-      ethers.BigNumber.from(tx.baseGas),
-      ethers.BigNumber.from(tx.gasPrice),
-      tx.gasToken,
-      tx.refundReceiver,
+      ethers.BigNumber.from(tx.safe_tx_gas),
+      ethers.BigNumber.from(tx.base_gas),
+      ethers.BigNumber.from(tx.gas_price),
+      tx.gas_token,
+      tx.refund_receiver,
       ethers.BigNumber.from(tx.nonce)
     ]
   );
@@ -57,7 +57,7 @@ export function calculateMessageHash(tx) {
  * @param {Object} tx - The Safe transaction object
  * @returns {string} - The hex-encoded approve hash
  */
-export function calculateApproveHash(tx) {
+function calculateApproveHash(tx) {
   // First calculate domain hash
   const domainHash = calculateDomainHash(tx);
   

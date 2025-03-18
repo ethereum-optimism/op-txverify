@@ -114,7 +114,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         }
         
         #qrcode {
@@ -241,14 +241,16 @@
     </style>
 
     <!-- External libraries -->
-    <script src="/lib/qrcode/qrcode.min.js"></script>
-    <script src="/lib/fflate/index.min.js"></script>
-    <script src="/lib/erasure/erasure.js"></script>
+    <script src="./lib/qrcode.js"></script>
+    <script src="./lib/fflate.js"></script>
+    <script src="./lib/erasure.js"></script>
 </head>
 <body>
     <div class="container">
         <div class="qr-container">
-            <div id="qrcode"></div>
+            <div id="qrcode">
+                <img src="./assets/sunny.png" alt="Sunny" id="defaultSunny" style="max-width: 95%; border-radius: 8px; margin: 20px auto;">
+            </div>
             <div id="qrOverlay" class="qr-overlay" style="display: none;">
                 <div>Generating QR Codes...</div>
                 <progress id="generateProgress" value="0" max="100"></progress>
@@ -258,18 +260,9 @@
         <div class="chunks-container" id="chunksContainer"></div>
 
         <div class="status" id="status">Enter transaction hash or link and click Start Display</div>
-
-        <div class="input-group">
-            <label class="input-label" for="networkSelect">Network</label>
-            <select id="networkSelect">
-                <option value="1">Ethereum</option>
-                <option value="10">OP Mainnet</option>
-            </select>
-        </div>
         
         <div class="input-group">
-            <label class="input-label" for="txInput">Transaction Hash or Link</label>
-            <input type="text" id="txInput" placeholder="Paste Gnosis Safe transaction hash or link...">
+            <input type="text" id="txInput" placeholder="Paste Safe tx hash or link...">
         </div>
         
         <button id="startBtn">Start Display</button>
@@ -296,7 +289,6 @@
         // DOM element references
         const DOM = {
             txInput: document.getElementById('txInput'),
-            networkSelect: document.getElementById('networkSelect'),
             startBtn: document.getElementById('startBtn'),
             status: document.getElementById('status'),
             qrcodeDiv: document.getElementById('qrcode'),
@@ -346,65 +338,92 @@
             return input.trim();
         }
         
-        // Fetch transaction data from Safe API
-        async function fetchTransactionData(chainId, txHash) {
-            const baseUrl = CHAIN_ID_TO_BASE_URL[chainId]
-            const url = `${baseUrl}/api/v2/multisig-transactions/${txHash}/`;
-    
-            try {
-                const response = await fetch(url);
+        // Updated to separate API checking from data processing
+        async function fetchTransactionData(txHash) {
+            const chainIds = Object.keys(CHAIN_ID_TO_BASE_URL);
+            const errors = [];
+            
+            // First, try each chain API until we find one that returns data
+            let foundContent = null;
+            let foundChainId = null;
+            let foundBaseUrl = null;
+            
+            for (const chainId of chainIds) {
+                const baseUrl = CHAIN_ID_TO_BASE_URL[chainId];
+                const url = `${baseUrl}/api/v2/multisig-transactions/${txHash}/`;
                 
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.status} ${response.statusText}`);
-                }
-                
-                let content = await response.json();
-                
-                // Check if this is an approveHash transaction
-                let nested = null;
-                if (content.data && content.data.startsWith('0xd4d9bdcd')) {
-                    // Extract the hash from the data (skip first 10 chars for function signature)
-                    const innerHash = '0x' + content.data.slice(10, 10 + 64);
-                    console.log("Detected approveHash transaction, inner hash:", innerHash);
+                try {
+                    const response = await fetch(url);
                     
-                    // Fetch the inner transaction
-                    const innerUrl = `${baseUrl}/api/v2/multisig-transactions/${innerHash}/`;
-                    const innerResponse = await fetch(innerUrl);
-                    
-                    if (!innerResponse.ok) {
-                        throw new Error(`Failed to fetch inner transaction: ${innerResponse.status} ${innerResponse.statusText}`);
+                    if (!response.ok) {
+                        // This API didn't find the transaction, try the next one
+                        errors.push(`Chain ${chainId}: ${response.status} ${response.statusText}`);
+                        continue;
                     }
                     
-                    const innerContent = await innerResponse.json();
+                    // Found a valid response, store it and break out of the loop
+                    foundContent = await response.json();
+                    foundChainId = chainId;
+                    foundBaseUrl = baseUrl;
+                    break;
                     
-                    // Set the nested data
-                    nested = {
-                        safe: content.safe,
-                        nonce: parseInt(content.nonce)
-                    };
-
-                    // Use the inner transaction data instead
-                    content = innerContent;
+                } catch (error) {
+                    errors.push(`Chain ${chainId}: ${error.message}`);
+                    // Continue to try the next API
                 }
-
-                return {
-                    safe: content.safe,
-                    chain: parseInt(chainId),
-                    to: content.to,
-                    value: parseInt(content.value),
-                    data: content.data,
-                    operation: content.operation,
-                    safe_tx_gas: parseInt(content.safeTxGas),
-                    base_gas: parseInt(content.baseGas),
-                    gas_price: parseInt(content.gasPrice),
-                    gas_token: content.gasToken,
-                    refund_receiver: content.refundReceiver,
-                    nonce: parseInt(content.nonce),
-                    nested,
-                }
-            } catch (error) {
-                throw new Error(`Failed to fetch transaction data: ${error.message}`);
             }
+            
+            // If we didn't find the transaction on any network, throw an error
+            if (!foundContent) {
+                throw new Error(`Transaction not found on any network. Errors: ${errors.join('; ')}`);
+            }
+            
+            // Now process the transaction data
+            let content = foundContent;
+            let nested = null;
+            
+            // Check if this is an approveHash transaction
+            if (content.data && content.data.startsWith('0xd4d9bdcd')) {
+                // Extract the hash from the data (skip first 10 chars for function signature)
+                const innerHash = '0x' + content.data.slice(10, 10 + 64);
+                console.log("Detected approveHash transaction, inner hash:", innerHash);
+                
+                // Fetch the inner transaction
+                const innerUrl = `${foundBaseUrl}/api/v2/multisig-transactions/${innerHash}/`;
+                const innerResponse = await fetch(innerUrl);
+                
+                if (!innerResponse.ok) {
+                    throw new Error(`Failed to fetch inner transaction: ${innerResponse.status} ${innerResponse.statusText}`);
+                }
+                
+                const innerContent = await innerResponse.json();
+                
+                // Set the nested data
+                nested = {
+                    safe: content.safe,
+                    nonce: parseInt(content.nonce)
+                };
+
+                // Use the inner transaction data instead
+                content = innerContent;
+            }
+
+            // Return the processed transaction data
+            return {
+                safe: content.safe,
+                chain: parseInt(foundChainId),
+                to: content.to,
+                value: parseInt(content.value),
+                data: content.data,
+                operation: content.operation,
+                safe_tx_gas: parseInt(content.safeTxGas),
+                base_gas: parseInt(content.baseGas),
+                gas_price: parseInt(content.gasPrice),
+                gas_token: content.gasToken,
+                refund_receiver: content.refundReceiver,
+                nonce: parseInt(content.nonce),
+                nested,
+            };
         }
         
         // Generate a unique transfer ID
@@ -483,7 +502,7 @@
         function displayQRCode(index) {
             if (!state.chunks || index >= state.chunks.length) return;
             
-            // Clear previous QR code
+            // Clear previous QR code and the sunny image
             DOM.qrcodeDiv.innerHTML = '';
             
             // Create image element
@@ -613,9 +632,8 @@
             stopDisplay();
 
             try {
-                // Get transaction hash and network
+                // Get transaction hash
                 const txInput = DOM.txInput.value.trim();
-                const chainId = DOM.networkSelect.value;
                 
                 if (!txInput) {
                     DOM.status.textContent = "Please enter a transaction hash or link";
@@ -630,7 +648,10 @@
                     return;
                 }
                 
-                // Show overlay with progress
+                // Hide the sunny image and show overlay with progress
+                if (document.getElementById('defaultSunny')) {
+                    document.getElementById('defaultSunny').style.display = 'none';
+                }
                 DOM.qrOverlay.style.display = 'flex';
                 DOM.generateProgress.value = 0;
                 DOM.status.textContent = "Fetching transaction data...";
@@ -639,7 +660,7 @@
                 DOM.startBtn.disabled = true;
                 
                 // Fetch transaction data
-                const transactionData = await fetchTransactionData(chainId, txHash);
+                const transactionData = await fetchTransactionData(txHash);
 
                 // Update status
                 DOM.status.textContent = "Generating QR codes...";

@@ -1,16 +1,3 @@
-import { ethers } from 'ethers';
-import { 
-  SAFE_MULTISEND_ADDRESS,
-  SAFE_MULTISEND_CALL_ONLY_141,
-  SAFE_MULTISEND_SIG,
-  MULTICALL3_ADDRESS,
-  AGGREGATE3_SIG,
-  KNOWN_FUNCTIONS as knownFunctions,
-  TOKEN_FUNCTIONS as tokenFunctions,
-  MULTICALL_ADDRESSES as multicallAddresses,
-  getKnownContract
-} from './constants.js';
-
 /**
  * Parse the transaction data and identify the function call
  * @param {string} to - Target address
@@ -19,7 +6,7 @@ import {
  * @param {Object} options - Verification options
  * @returns {Object} Parsed call data
  */
-export function parseTransactionData(to, data, chainID, options = {}) {
+function parseTransactionData(to, data, chainID, options = {}) {
   // Remove 0x prefix if present
   const cleanData = data.startsWith('0x') ? data.slice(2) : data;
 
@@ -50,86 +37,73 @@ export function parseTransactionData(to, data, chainID, options = {}) {
     };
   }
 
-  const functionSelector = cleanData.slice(0, 8);
+  // Get function selector
+  const functionSelector = cleanData.substring(0, 8);
 
-  // Try to identify the function from known selectors
-  const functionInfo = knownFunctions[functionSelector];
+  // Check if we know this function
+  if (KNOWN_FUNCTIONS[functionSelector]) {
+    const functionInfo = KNOWN_FUNCTIONS[functionSelector];
+    
+    // Parse the function arguments
+    let parsedData = {};
+    try {
+      parsedData = parseArguments(functionInfo, cleanData);
 
-  if (!functionInfo) {
-    // If we can't identify the function, return the raw data
-    return {
-      target: to,
-      targetName: targetName,
-      functionName: "unknown",
-      rawData: data
-    };
-  }
-
-  // Parse the function arguments
-  let parsedArgs;
-  try {
-    parsedArgs = parseArguments(functionInfo.abi, "0x" + cleanData);
-  } catch (err) {
-    // If we can't parse the arguments, return the raw data
+      // If this is a token function on a known contract with decimals, adjust the amount
+      if (contractInfo && TOKEN_FUNCTIONS[functionInfo.name] && 
+          contractInfo.decimals > 0 && parsedData.amount) {
+        parsedData.amount = parseDecimals(parsedData.amount, contractInfo.decimals);
+      }
+      
+      // Check if any of the arguments are known contracts
+      for (const [key, value] of Object.entries(parsedData)) {
+        if (typeof value === 'string' && value.startsWith('0x') && value.length === 42) {
+          const argContract = getKnownContract(value.toLowerCase(), chainID);
+          if (argContract) {
+            parsedData[key] = `${value} (${argContract.name} ✅)`;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error parsing function arguments:", err);
+    }
+    
+    // Check if this is a multicall contract and function
+    const isMulticallContract = MULTICALL_ADDRESSES[chainID] && 
+      MULTICALL_ADDRESSES[chainID][normalizedTo];
+    const isMulticallFunction = functionInfo.name === "multiSend" || 
+      functionInfo.name === "aggregate3";
+    
+    if (isMulticallContract && isMulticallFunction) {
+      try {
+        const subcalls = parseMulticall(normalizedTo, chainID, functionInfo, parsedData, options);
+        return {
+          target: to,
+          targetName: targetName,
+          functionName: functionInfo.name,
+          subCalls: subcalls
+        };
+      } catch (err) {
+        console.error("Error parsing multicall:", err);
+      }
+    }
+    
+    // Regular function call
     return {
       target: to,
       targetName: targetName,
       functionName: functionInfo.name,
-      rawData: data
+      functionData: data,
+      parsedData: parsedData
     };
   }
 
-  // If this is a token function on a known contract where we have decimals, adjust the amount
-  if (contractInfo && tokenFunctions[functionInfo.name] && contractInfo.decimals > 0 && parsedArgs["amount"]) {
-    parsedArgs["amount"] = parseDecimals(parsedArgs["amount"], contractInfo.decimals);
-  }
-
-  // Check if any of the arguments are known contracts
-  for (const [key, value] of Object.entries(parsedArgs)) {
-    if (value && typeof value === 'string' && ethers.utils.isAddress(value)) {
-      const knownContract = getKnownContract(value, chainID);
-      if (knownContract) {
-        parsedArgs[key] = `${value} (${knownContract.name} ✅)`;
-      }
-    }
-  }
-
-  // Check if this is a multicall contract and the function is a multicall function
-  const isMulticallContract = multicallAddresses[chainID] && 
-                             multicallAddresses[chainID][normalizedTo];
-  
-  const isMulticallFunction = functionInfo.name === "multiSend" || functionInfo.name === "aggregate3";
-
-  if (isMulticallContract && isMulticallFunction) {
-    // Parse subcalls - passing contract address, chain ID, and full function info
-    try {
-      const subcalls = parseMulticall(normalizedTo, chainID, functionInfo, parsedArgs, options);
-      
-      // Return with subcalls
-      return {
-        target: to,
-        targetName: targetName,
-        functionName: functionInfo.name,
-        subCalls: subcalls
-      };
-    } catch (err) {
-      console.error("Error parsing multicall:", err);
-      // Return without subcalls in case of error
-      return {
-        target: to,
-        targetName: targetName,
-        functionName: functionInfo.name,
-        parsedData: parsedArgs
-      };
-    }
-  }
-
-  // Regular function call
+  // Unknown function
   return {
     target: to,
     targetName: targetName,
-    functionName: functionInfo.name,
-    parsedData: parsedArgs
+    functionName: "unknown",
+    rawData: data
   };
 }
 
@@ -139,7 +113,7 @@ export function parseTransactionData(to, data, chainID, options = {}) {
  * @param {number} decimals - Number of decimals
  * @returns {string} Formatted string
  */
-export function parseDecimals(amount, decimals) {
+function parseDecimals(amount, decimals) {
   let amountStr = amount.toString();
 
   // Pad with leading zeros if needed
@@ -153,17 +127,26 @@ export function parseDecimals(amount, decimals) {
 }
 
 /**
+ * Converts byte array to hex string
+ * @param {Uint8Array|Array<number>} bytes - Byte array
+ * @returns {string} Hex string
+ */
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * Decodes the function arguments from calldata
- * @param {Object} method - ABI method definition
+ * @param {Object} functionInfo - FunctionFragment object
  * @param {string} calldata - Transaction calldata
  * @returns {Object} Decoded arguments
  */
-function parseArguments(method, calldata) {
+function parseArguments(functionInfo, calldata) {
   // Remove 0x prefix if present
   calldata = calldata.startsWith('0x') ? calldata : '0x' + calldata;
 
   // Create an interface with just this function
-  const iface = new ethers.utils.Interface([method]);
+  const iface = new ethers.utils.Interface([functionInfo]);
   
   // Decode the call data
   const decodedData = iface.parseTransaction({ data: calldata });
@@ -171,12 +154,12 @@ function parseArguments(method, calldata) {
   // Convert to a map
   const result = {};
   for (let i = 0; i < decodedData.args.length; i++) {
-    let name = method.inputs[i]?.name || `arg${i}`;
+    let name = functionInfo.inputs[i]?.name || `arg${i}`;
     let arg = decodedData.args[i];
 
     // Handle byte arrays for better readability
     if (arg instanceof Uint8Array || (Array.isArray(arg) && arg.every(item => typeof item === 'number' && item < 256))) {
-      result[name] = '0x' + Buffer.from(arg).toString('hex');
+      result[name] = '0x' + bytesToHex(arg);
     } else {
       result[name] = arg;
     }
@@ -203,7 +186,7 @@ function parseMulticall(contractAddress, chainID, functionInfo, args, options) {
       normalizedAddress === SAFE_MULTISEND_CALL_ONLY_141.toLowerCase()) {
     
     // For Safe Multisend contract, check the function signature
-    if (functionInfo.signature === SAFE_MULTISEND_SIG) {
+    if (getFunctionSelector(functionInfo.format()) === getFunctionSelector(SAFE_MULTISEND_SIG)) {
       // Parse multiSend calldata
       const hexData = args["transactions"];
       if (!hexData || !hexData.startsWith('0x')) {
@@ -223,7 +206,7 @@ function parseMulticall(contractAddress, chainID, functionInfo, args, options) {
         pos++;
 
         // Extract to address
-        const to = ethers.utils.getAddress('0x' + Buffer.from(data.slice(pos, pos + 20)).toString('hex'));
+        const to = ethers.utils.getAddress('0x' + bytesToHex(data.slice(pos, pos + 20)));
         pos += 20;
 
         // Skip extracting value for now
@@ -238,7 +221,7 @@ function parseMulticall(contractAddress, chainID, functionInfo, args, options) {
         if (pos + length > data.length) break;
 
         // Extract call data
-        const callData = '0x' + Buffer.from(data.slice(pos, pos + length)).toString('hex');
+        const callData = '0x' + bytesToHex(data.slice(pos, pos + length));
         pos += length;
 
         // Parse the subcall
@@ -250,11 +233,11 @@ function parseMulticall(contractAddress, chainID, functionInfo, args, options) {
         }
       }
     } else {
-      throw new Error(`Unsupported function ${functionInfo.signature} for Safe Multisend contract`);
+      throw new Error(`Unsupported function ${functionInfo.format()} for Safe Multisend contract`);
     }
   } else if (normalizedAddress === MULTICALL3_ADDRESS.toLowerCase()) {
     // For Multicall3 contract, check the function signature
-    if (functionInfo.signature === AGGREGATE3_SIG) {
+    if (getFunctionSelector(functionInfo.format()) === getFunctionSelector(AGGREGATE3_SIG)) {
       // Parse aggregate3 calldata
       const calls = args["calls"];
       if (!Array.isArray(calls)) {
@@ -270,7 +253,7 @@ function parseMulticall(contractAddress, chainID, functionInfo, args, options) {
         }
       }
     } else {
-      throw new Error(`Unsupported function ${functionInfo.signature} for Multicall3 contract`);
+      throw new Error(`Unsupported function ${functionInfo.format()} for Multicall3 contract`);
     }
   } else {
     // No generic parsing - return an error for unknown contracts
