@@ -401,7 +401,10 @@
                 // Set the nested data
                 nested = {
                     safe: content.safe,
-                    nonce: parseInt(content.nonce)
+                    nonce: parseInt(content.nonce),
+                    data: content.data,
+                    operation: content.operation,
+                    to: content.to,
                 };
 
                 // Use the inner transaction data instead

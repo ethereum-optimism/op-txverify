@@ -45,7 +45,7 @@ func ScanQRCode(deviceID string) (string, error) {
 		return result, nil
 	case err := <-errChan:
 		return "", err
-	case <-time.After(120 * time.Second): // Extended timeout for multi-part scanning
+	case <-time.After(300 * time.Second): // Extended timeout for multi-part scanning
 		return "", fmt.Errorf("timeout waiting for QR code")
 	}
 }

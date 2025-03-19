@@ -121,18 +121,59 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 	}, nil
 }
 
-// ParseDecimals parses the amount and returns it as a string with the correct number of decimals
+// ParseDecimals parses the amount and returns it as a human-readable string
+// with the correct number of decimals and comma grouping in the integer portion.
 func ParseDecimals(amount *big.Int, decimals int) string {
 	amountStr := amount.String()
 
-	// Pad with leading zeros if needed
+	// Pad with leading zeros for decimal portion if needed
 	if len(amountStr) <= decimals {
 		amountStr = strings.Repeat("0", decimals-len(amountStr)+1) + amountStr
 	}
-
-	// Insert decimal point at the right position
 	decimalPos := len(amountStr) - decimals
-	return amountStr[:decimalPos] + "." + amountStr[decimalPos:]
+
+	// Split integer and fractional parts
+	intPart := amountStr[:decimalPos]
+	fracPart := ""
+	if decimals > 0 {
+		fracPart = amountStr[decimalPos:]
+	}
+
+	// Insert commas into integer part
+	intPartWithCommas := addCommas(intPart)
+
+	// Return final string with optional fractional part
+	if decimals > 0 {
+		return intPartWithCommas + "." + fracPart
+	}
+	return intPartWithCommas
+}
+
+// addCommas inserts commas every three digits starting from the right.
+func addCommas(s string) string {
+	// Special case for empty or very short string
+	if len(s) <= 3 {
+		return s
+	}
+
+	var result []byte
+	count := 0
+
+	// Append digits in reverse order, inserting commas every 3 digits
+	for i := len(s) - 1; i >= 0; i-- {
+		result = append(result, s[i])
+		count++
+		if count%3 == 0 && i != 0 {
+			result = append(result, ',')
+		}
+	}
+
+	// Reverse the result back to normal order
+	for i := 0; i < len(result)/2; i++ {
+		result[i], result[len(result)-1-i] = result[len(result)-1-i], result[i]
+	}
+
+	return string(result)
 }
 
 // parseArguments decodes the function arguments from calldata
