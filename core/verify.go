@@ -17,8 +17,11 @@ type VerificationResult struct {
 
 // Nested represents the data about nested approve hash transactions
 type Nested struct {
-	Safe  string `json:"safe"`
-	Nonce int    `json:"nonce"`
+	Safe      string `json:"safe"`
+	Nonce     int    `json:"nonce"`
+	Data      string `json:"data"`
+	Operation int    `json:"operation"`
+	To        string `json:"to"`
 }
 
 // SafeTransaction represents a Gnosis Safe transaction
@@ -68,12 +71,12 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 		}
 
 		// Manipulate the transaction to generate the outer result
-		tx.To = tx.Safe
+		tx.To = tx.Nested.To
 		tx.Safe = tx.Nested.Safe
 		tx.Nonce = tx.Nested.Nonce
-		tx.Operation = 0
+		tx.Operation = tx.Nested.Operation
 		tx.Value = 0
-		tx.Data = "0xd4d9bdcd" + strings.TrimPrefix(nestedResult.ApproveHash, "0x")
+		tx.Data = tx.Nested.Data
 	}
 
 	// Verify the main transaction
