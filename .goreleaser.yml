@@ -3,7 +3,7 @@ before:
   hooks:
     - go mod tidy
 builds:
-  - binary: '{{ .ProjectName }}_v{{ .Version }}'
+  - binary: '{{ .ProjectName }}'
     main: ./cmd/op-verify
     env:
       - CGO_ENABLED=0
