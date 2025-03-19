@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -209,30 +210,53 @@ func parseArguments(method abi.Method, calldata string) (map[string]interface{},
 			name = fmt.Sprintf("arg%d", i)
 		}
 
-		// Convert byte arrays and fixed-size uint8 arrays to hex strings for better readability
-		if byteArray, ok := arg.([]byte); ok {
-			result[name] = "0x" + hex.EncodeToString(byteArray)
-		} else {
-			// Check for fixed-size uint8 arrays using type string
-			argType := fmt.Sprintf("%T", arg)
-			if strings.HasPrefix(argType, "[") && strings.HasSuffix(argType, "]uint8") {
-				// Convert the fixed-size array to a byte slice
-				bytes := make([]byte, 0)
+		// Handle arrays by creating indexed entries in the map
+		if reflect.TypeOf(arg).Kind() == reflect.Slice &&
+			reflect.TypeOf(arg).Elem().Kind() != reflect.Uint8 {
+			// It's an array but not a byte array
+			arrayValue := reflect.ValueOf(arg)
 
-				// Get string representation without brackets
-				str := fmt.Sprintf("%v", arg)
-				str = strings.Trim(str, "[]")
+			// Add the full array under its original name
+			result[name] = arg
 
-				// Split by space (Go's array string representation uses spaces)
-				for _, numStr := range strings.Fields(str) {
-					var val uint8
-					fmt.Sscanf(numStr, "%d", &val)
-					bytes = append(bytes, val)
+			// Also add individual elements with indexed names for easier access
+			for j := 0; j < arrayValue.Len(); j++ {
+				indexedName := fmt.Sprintf("%s[%d]", name, j)
+				element := arrayValue.Index(j).Interface()
+
+				// Apply the same formatting we do for regular elements
+				if byteArray, ok := element.([]byte); ok {
+					result[indexedName] = "0x" + hex.EncodeToString(byteArray)
+				} else {
+					result[indexedName] = element
 				}
-
-				result[name] = "0x" + hex.EncodeToString(bytes)
+			}
+		} else {
+			// Convert byte arrays and fixed-size uint8 arrays to hex strings for better readability
+			if byteArray, ok := arg.([]byte); ok {
+				result[name] = "0x" + hex.EncodeToString(byteArray)
 			} else {
-				result[name] = arg
+				// Check for fixed-size uint8 arrays using type string
+				argType := fmt.Sprintf("%T", arg)
+				if strings.HasPrefix(argType, "[") && strings.HasSuffix(argType, "]uint8") {
+					// Convert the fixed-size array to a byte slice
+					bytes := make([]byte, 0)
+
+					// Get string representation without brackets
+					str := fmt.Sprintf("%v", arg)
+					str = strings.Trim(str, "[]")
+
+					// Split by space (Go's array string representation uses spaces)
+					for _, numStr := range strings.Fields(str) {
+						var val uint8
+						fmt.Sscanf(numStr, "%d", &val)
+						bytes = append(bytes, val)
+					}
+
+					result[name] = "0x" + hex.EncodeToString(bytes)
+				} else {
+					result[name] = arg
+				}
 			}
 		}
 	}
@@ -309,21 +333,68 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 		} else {
 			return nil, fmt.Errorf("unsupported function %s for Safe Multisend contract", functionInfo.Signature)
 		}
-	} else if normalizedAddress == strings.ToLower(Multicall3Address) {
+	} else if normalizedAddress == strings.ToLower(Multicall3Address) || normalizedAddress == strings.ToLower(Multicall3Delegatecall) {
 		// For Multicall3 contract, check the function signature
 		if functionInfo.Signature == Aggregate3Sig {
-			// Parse aggregate3 calldata
-			calls, ok := args["calls"].([]struct {
+			// Define the struct type for the calls
+			type Call3 struct {
 				Target       common.Address
 				AllowFailure bool
-				CallData     string
-			})
-			if !ok {
-				return nil, errors.New("invalid aggregate3 data format")
+				CallData     []byte
 			}
 
+			// Get and validate the raw calls data
+			rawCalls, ok := args["calls"]
+			if !ok {
+				return nil, errors.New("missing calls in aggregate3 data")
+			}
+
+			// Use reflection to convert the data to our expected type
+			rawCallsValue := reflect.ValueOf(rawCalls)
+			if rawCallsValue.Kind() != reflect.Slice {
+				return nil, errors.New("aggregate3 calls must be a slice")
+			}
+
+			// Create the result slice with the correct capacity
+			calls := make([]Call3, rawCallsValue.Len())
+
+			// Process each call in the slice
+			for i := 0; i < rawCallsValue.Len(); i++ {
+				callValue := rawCallsValue.Index(i)
+
+				// Extract the required fields using case-insensitive matching
+				targetField := callValue.FieldByNameFunc(func(name string) bool {
+					return strings.EqualFold(name, "target")
+				})
+				if !targetField.IsValid() {
+					return nil, errors.New("missing target field in call")
+				}
+
+				allowFailureField := callValue.FieldByNameFunc(func(name string) bool {
+					return strings.EqualFold(name, "allowfailure")
+				})
+				if !allowFailureField.IsValid() {
+					return nil, errors.New("missing allowFailure field in call")
+				}
+
+				callDataField := callValue.FieldByNameFunc(func(name string) bool {
+					return strings.EqualFold(name, "calldata")
+				})
+				if !callDataField.IsValid() {
+					return nil, errors.New("missing callData field in call")
+				}
+
+				// Populate the result struct
+				calls[i] = Call3{
+					Target:       targetField.Interface().(common.Address),
+					AllowFailure: allowFailureField.Interface().(bool),
+					CallData:     callDataField.Interface().([]byte),
+				}
+			}
+
+			// Parse aggregate3 calldata
 			for _, call := range calls {
-				subcall, err := ParseTransactionData(call.Target.Hex(), call.CallData, chainID, options)
+				subcall, err := ParseTransactionData(call.Target.Hex(), "0x"+hex.EncodeToString(call.CallData), chainID, options)
 				if err != nil {
 					continue
 				}

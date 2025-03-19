@@ -652,7 +652,9 @@
                 }
                 
                 // Hide the sunny image and show overlay with progress
-                document.getElementById('defaultSunny').style.display = 'none';
+                if (document.getElementById('defaultSunny')) {
+                    document.getElementById('defaultSunny').style.display = 'none';
+                }
                 DOM.qrOverlay.style.display = 'flex';
                 DOM.generateProgress.value = 0;
                 DOM.status.textContent = "Fetching transaction data...";
