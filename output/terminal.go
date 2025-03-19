@@ -90,7 +90,9 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 		fmt.Fprintf(w, "%s: %s\n", bold("Inner Safe"), nestedSafeDisplay)
 		fmt.Fprintf(w, "%s: %d\n", bold("Inner Nonce"), nestedTx.Nonce)
-		fmt.Fprintf(w, "%s: %s\n", bold("Inner Hash"), result.NestedResult.ApproveHash)
+		fmt.Fprintf(w, "%s: %s\n", bold("Inner Tx Hash"), result.NestedResult.ApproveHash)
+		fmt.Fprintf(w, "%s: %s\n", bold("Inner Domain Hash"), result.NestedResult.DomainHash)
+		fmt.Fprintf(w, "%s: %s\n", bold("Inner Message Hash"), result.NestedResult.MessageHash)
 		fmt.Fprintln(w, "")
 
 		// Print inner call details
