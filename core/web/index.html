@@ -310,8 +310,37 @@
             displayInterval: null,
             transferId: null,
             qrCodeImages: [],
-            displayedChunks: new Set()
+            displayedChunks: new Set(),
+            directTransactionData: null
         };
+
+        // Check for transaction data in URL parameters when page loads
+        function checkUrlForTransactionData() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const txData = urlParams.get('tx');
+            
+            if (txData) {
+                try {
+                    // Attempt to decode the base64 data
+                    const decodedData = atob(txData);
+                    const parsedData = JSON.parse(decodedData);
+                    
+                    // Store the transaction data
+                    state.directTransactionData = parsedData;
+                    
+                    // Update UI to show we have direct transaction data
+                    DOM.status.textContent = "Transaction data found in URL";
+                    DOM.txInput.value = "Transaction data from URL";
+                    DOM.txInput.disabled = true;
+                    
+                    // Auto-start the QR code generation
+                    DOM.startBtn.click();
+                } catch (error) {
+                    console.error("Error parsing transaction data from URL:", error);
+                    DOM.status.textContent = "Invalid transaction data in URL";
+                }
+            }
+        }
         
         /**
          * Utility Functions
@@ -340,6 +369,11 @@
         
         // Updated to separate API checking from data processing
         async function fetchTransactionData(txHash) {
+            // If we have direct transaction data from URL parameter, use it instead of API call
+            if (state.directTransactionData) {
+                return state.directTransactionData;
+            }
+            
             const chainIds = Object.keys(CHAIN_ID_TO_BASE_URL);
             const errors = [];
             
@@ -635,40 +669,56 @@
             stopDisplay();
 
             try {
-                // Get transaction hash
-                const txInput = DOM.txInput.value.trim();
+                let transactionData;
                 
-                if (!txInput) {
-                    DOM.status.textContent = "Please enter a transaction hash or link";
-                    return;
+                // If we have direct transaction data from URL parameter, use it
+                if (state.directTransactionData) {
+                    transactionData = state.directTransactionData;
+                    DOM.status.textContent = "Using transaction data from URL...";
+                } else {
+                    // Otherwise, proceed with normal flow
+                    // Get transaction hash
+                    const txInput = DOM.txInput.value.trim();
+                    
+                    if (!txInput) {
+                        DOM.status.textContent = "Please enter a transaction hash or link";
+                        return;
+                    }
+                    
+                    // Extract transaction hash from the input
+                    const txHash = extractTransactionHash(txInput);
+                    
+                    if (!txHash.startsWith('0x')) {
+                        DOM.status.textContent = "Invalid transaction hash format";
+                        return;
+                    }
+                    
+                    // Hide the sunny image and show overlay with progress
+                    if (document.getElementById('defaultSunny')) {
+                        document.getElementById('defaultSunny').style.display = 'none';
+                    }
+                    DOM.qrOverlay.style.display = 'flex';
+                    DOM.generateProgress.value = 0;
+                    DOM.status.textContent = "Fetching transaction data...";
+                    
+                    // Fetch transaction data
+                    transactionData = await fetchTransactionData(txHash);
                 }
-                
-                // Extract transaction hash from the input
-                const txHash = extractTransactionHash(txInput);
-                
-                if (!txHash.startsWith('0x')) {
-                    DOM.status.textContent = "Invalid transaction hash format";
-                    return;
-                }
-                
+
                 // Hide the sunny image and show overlay with progress
                 if (document.getElementById('defaultSunny')) {
                     document.getElementById('defaultSunny').style.display = 'none';
                 }
                 DOM.qrOverlay.style.display = 'flex';
                 DOM.generateProgress.value = 0;
-                DOM.status.textContent = "Fetching transaction data...";
                 
                 // Disable button during generation
                 DOM.startBtn.disabled = true;
                 
-                // Fetch transaction data
-                const transactionData = await fetchTransactionData(txHash);
-
                 // Update status
                 DOM.status.textContent = "Generating QR codes...";
                 
-                // Generate QR codes from the fetched data
+                // Generate QR codes from the transaction data
                 await generateQRCodes(transactionData);
                 
                 // Hide overlay
@@ -692,6 +742,9 @@
         
         // Clean up when the page is closed
         window.addEventListener('beforeunload', stopDisplay);
+        
+        // Check for URL parameter when page loads
+        window.addEventListener('DOMContentLoaded', checkUrlForTransactionData);
     </script>
 </body>
 </html>
