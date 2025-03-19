@@ -4,15 +4,22 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"reflect"
 	"sort"
+	"strings"
+
+	"encoding/hex"
 
 	"github.com/ethereum-optimism/op-verify/core"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/fatih/color"
 )
 
-// FormatTerminal outputs the verification result in a human-readable format
+// FormatTerminal outputs the verification result in a human-readable format to the provided writer.
+// It displays transaction details, nested transactions, call data, and verification instructions
+// in a color-coded terminal-friendly format.
 func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
-	// Set up colors
+	// Set up colors for consistent formatting
 	heading := color.New(color.FgCyan, color.Bold).SprintFunc()
 	divider := color.New(color.FgCyan).SprintFunc()
 	label := color.New(color.FgMagenta).SprintFunc()
@@ -131,7 +138,12 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	return nil
 }
 
-// Helper function to print call details recursively
+// printCallDetails recursively prints the details of a call and any subcalls.
+// Parameters:
+// - w: writer to output to
+// - call: the call data to print
+// - depth: current recursion depth (0 for main call, increments for subcalls)
+// - heading, divider, label, yellow, bold: formatting functions for consistent styling
 func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divider, label, yellow, bold func(a ...interface{}) string) {
 	// Determine heading based on depth
 	if depth == 0 {
@@ -161,7 +173,6 @@ func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divid
 
 	// If there's parsed data, print it
 	if call.ParsedData != nil {
-		// Make the Parsed Data heading purple (using the label color) but still bold
 		fmt.Fprintln(w, label(bold("PARSED DATA")))
 		fmt.Fprintln(w, label("────────────────────────────────────────────────────────"))
 
@@ -177,11 +188,22 @@ func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divid
 
 			// Print values using sorted keys
 			for _, key := range keys {
-				fmt.Fprintf(w, "%s: %v\n", yellow(key), parsedMap[key])
+				// Skip printing array elements with index notation if we already printed the full array
+				if strings.Contains(key, "[") && strings.HasSuffix(key, "]") {
+					// Extract the base name before the bracket
+					baseName := key[:strings.Index(key, "[")]
+					if contains(keys, baseName) {
+						// Skip individual elements since we'll format the array better
+						continue
+					}
+				}
+
+				value := parsedMap[key]
+				prettyPrintValue(w, key, value, yellow, "", 0)
 			}
 		} else {
 			// If it's not a map, just print the value
-			fmt.Fprintf(w, "%v\n", call.ParsedData)
+			fmt.Fprintf(w, "%v\n", formatSimpleValue(call.ParsedData))
 		}
 		fmt.Fprintln(w, "")
 	}
@@ -190,12 +212,217 @@ func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divid
 	if len(call.SubCalls) > 0 {
 		fmt.Fprintln(w, heading("THIS TRANSACTION INCLUDES NESTED SUBCALLS"))
 		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-		fmt.Fprintf(w, "%s: %d\n\n", bold("Number of subcalls"), len(call.SubCalls))
+		fmt.Fprintf(w, "%s: %d\n", bold("Number of subcalls"), len(call.SubCalls))
 
 		// Process each subcall
 		for i, subcall := range call.SubCalls {
 			// Increment depth for subcalls
 			printCallDetails(w, subcall, depth+i+1, heading, divider, label, yellow, bold)
 		}
+	}
+}
+
+// contains checks if a string slice contains a given value.
+// Returns true if the value is found, false otherwise.
+func contains(slice []string, value string) bool {
+	for _, item := range slice {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+// prettyPrintValue recursively formats and prints a value with proper indentation.
+// Parameters:
+// - w: writer to output to
+// - key: name of the field/property
+// - value: the value to print
+// - keyColor: formatting function for the key
+// - indent: current indentation string
+// - depth: current recursion depth to prevent infinite recursion
+func prettyPrintValue(w io.Writer, key string, value interface{}, keyColor func(a ...interface{}) string, indent string, depth int) {
+	// Prevent excessive recursion
+	if depth > 5 {
+		fmt.Fprintf(w, "%s%s: [complex nested structure]\n", indent, keyColor(key))
+		return
+	}
+
+	// Handle nil values
+	if value == nil {
+		fmt.Fprintf(w, "%s%s: nil\n", indent, keyColor(key))
+		return
+	}
+
+	valueType := reflect.TypeOf(value)
+	valueKind := valueType.Kind()
+
+	// Simple types can be printed directly
+	if valueKind != reflect.Array && valueKind != reflect.Slice &&
+		valueKind != reflect.Map && valueKind != reflect.Struct {
+		fmt.Fprintf(w, "%s%s: %v\n", indent, keyColor(key), formatSimpleValue(value))
+		return
+	}
+
+	// For complex types, use specialized formatting functions
+	if valueKind == reflect.Slice || valueKind == reflect.Array {
+		prettyPrintArray(w, key, value, keyColor, indent, depth)
+	} else if valueKind == reflect.Map {
+		prettyPrintMap(w, key, value, keyColor, indent, depth)
+	} else if valueKind == reflect.Struct {
+		prettyPrintStructObj(w, key, value, keyColor, indent, depth)
+	}
+}
+
+// prettyPrintArray formats and prints an array or slice with appropriate formatting.
+// For byte arrays, it uses hex encoding. For small arrays of simple types, it uses
+// inline formatting. For larger or complex arrays, it formats items vertically.
+func prettyPrintArray(w io.Writer, key string, arr interface{}, keyColor func(a ...interface{}) string, indent string, depth int) {
+	arrValue := reflect.ValueOf(arr)
+	arrLen := arrValue.Len()
+
+	// For empty arrays
+	if arrLen == 0 {
+		fmt.Fprintf(w, "%s%s: []\n", indent, keyColor(key))
+		return
+	}
+
+	// For byte arrays/slices, print as hex
+	if arrValue.Type().Elem().Kind() == reflect.Uint8 {
+		// Convert to []byte
+		byteArr := make([]byte, arrLen)
+		for i := 0; i < arrLen; i++ {
+			byteArr[i] = uint8(arrValue.Index(i).Uint())
+		}
+		fmt.Fprintf(w, "%s%s: 0x%s\n", indent, keyColor(key), hex.EncodeToString(byteArr))
+		return
+	}
+
+	// For arrays with fewer than 5 simple elements, print inline
+	if arrLen < 5 {
+		allSimple := true
+		for i := 0; i < arrLen; i++ {
+			itemKind := arrValue.Index(i).Kind()
+			if itemKind == reflect.Array || itemKind == reflect.Slice ||
+				itemKind == reflect.Map || itemKind == reflect.Struct {
+				allSimple = false
+				break
+			}
+		}
+
+		if allSimple {
+			fmt.Fprintf(w, "%s%s: [", indent, keyColor(key))
+			for i := 0; i < arrLen; i++ {
+				if i > 0 {
+					fmt.Fprint(w, ", ")
+				}
+				fmt.Fprintf(w, "%v", formatSimpleValue(arrValue.Index(i).Interface()))
+			}
+			fmt.Fprintln(w, "]")
+			return
+		}
+	}
+
+	// For larger or complex arrays, print items vertically
+	fmt.Fprintf(w, "%s%s: [\n", indent, keyColor(key))
+	for i := 0; i < arrLen; i++ {
+		item := arrValue.Index(i).Interface()
+		itemKind := arrValue.Index(i).Kind()
+
+		if itemKind == reflect.Struct || itemKind == reflect.Map {
+			// For complex items, recursively print them
+			fmt.Fprintf(w, "%s  Item #%d:\n", indent, i)
+			if itemKind == reflect.Struct {
+				prettyPrintStructObj(w, "", item, keyColor, indent+"    ", depth+1)
+			} else {
+				prettyPrintMap(w, "", item, keyColor, indent+"    ", depth+1)
+			}
+		} else {
+			// For simple items
+			fmt.Fprintf(w, "%s  Item #%d: %v\n", indent, i, formatSimpleValue(item))
+		}
+	}
+	fmt.Fprintf(w, "%s]\n", indent)
+}
+
+// prettyPrintMap formats and prints a map with keys sorted alphabetically.
+func prettyPrintMap(w io.Writer, key string, m interface{}, keyColor func(a ...interface{}) string, indent string, depth int) {
+	mapValue := reflect.ValueOf(m)
+
+	// For empty maps
+	if mapValue.Len() == 0 {
+		fmt.Fprintf(w, "%s%s: {}\n", indent, keyColor(key))
+		return
+	}
+
+	if key != "" {
+		fmt.Fprintf(w, "%s%s: {\n", indent, keyColor(key))
+	} else {
+		fmt.Fprintf(w, "%s{\n", indent)
+	}
+
+	// Get and sort keys
+	mapKeys := mapValue.MapKeys()
+	sort.Slice(mapKeys, func(i, j int) bool {
+		return fmt.Sprintf("%v", mapKeys[i]) < fmt.Sprintf("%v", mapKeys[j])
+	})
+
+	// Print each key-value pair
+	for _, k := range mapKeys {
+		mapKey := fmt.Sprintf("%v", k)
+		mapItem := mapValue.MapIndex(k).Interface()
+		prettyPrintValue(w, mapKey, mapItem, keyColor, indent+"  ", depth+1)
+	}
+
+	fmt.Fprintf(w, "%s}\n", indent)
+}
+
+// prettyPrintStructObj formats and prints a struct with its fields.
+func prettyPrintStructObj(w io.Writer, key string, s interface{}, keyColor func(a ...interface{}) string, indent string, depth int) {
+	structValue := reflect.ValueOf(s)
+	structType := structValue.Type()
+
+	if key != "" {
+		fmt.Fprintf(w, "%s%s: {\n", indent, keyColor(key))
+	} else {
+		fmt.Fprintf(w, "%s{\n", indent)
+	}
+
+	// Print each field
+	for i := 0; i < structValue.NumField(); i++ {
+		field := structType.Field(i)
+		fieldValue := structValue.Field(i).Interface()
+
+		// Skip unexported fields
+		if field.PkgPath != "" {
+			continue
+		}
+
+		prettyPrintValue(w, field.Name, fieldValue, keyColor, indent+"  ", depth+1)
+	}
+
+	fmt.Fprintf(w, "%s}\n", indent)
+}
+
+// formatSimpleValue handles special formatting for various types like byte arrays,
+// addresses, and other common Ethereum-specific types.
+// Returns a properly formatted representation of the value.
+func formatSimpleValue(value interface{}) interface{} {
+	if value == nil {
+		return "nil"
+	}
+
+	// Special handling for common types
+	switch v := value.(type) {
+	case []byte:
+		return "0x" + hex.EncodeToString(v)
+	case common.Address:
+		return v.Hex()
+	case fmt.Stringer:
+		return v.String()
+	case *big.Int:
+		return v.String()
+	default:
+		return v
 	}
 }
