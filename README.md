@@ -1,12 +1,32 @@
 # op-verify
 
-Utilities for verifying Safe transactions.
+op-verify is a command-line utility for verifying [Safe](https://app.safe.global) transactions. It helps users validate Safe multisig transactions by:
+
+1. Parsing and presenting transactions in a clearly understandable manner
+2. Identifying common addresses and contracts that users interact with
+3. Simplifying access by allowing users to input transactions via QR codes
+
+## QR Code Scanning
+
+The QR scanning functionality provided by `op-verify` allows you to verify Safe transactions by scanning QR codes displayed on a web interface. This is especially useful for air-gapped verification where transmitting data to the verification device over bluetooth or USB is not desireable.
+
+To use the QR code scanner:
+
+1. Open [https://op-verify.optimism.io](https://op-verify.optimism.io) on your mobile device.
+2. Paste the transaction hash or Safe UI link of the Safe transaction you want to verify.
+3. Run the following command on your verification device:
+    ```bash
+    op-verify qr
+    ```
+4. A browser window will automatically open with the QR scanner interface.
+5. Display the QR codes on your mobile device to the QR scanner.
+6. After successful scanning, op-verify will verify the transaction and display the results.
 
 ## Installation
 
 ### Option 1: Download from Releases
 
-1. Go to the [Releases](https://github.com/yourusername/op-verify/releases) page
+1. Go to the [Releases](https://github.com/ethereum-optimism/op-verify/releases) page
 2. Download the appropriate binary for your operating system and architecture
 3. Make the binary executable: `chmod +x op-verify_[version]_[os]_[arch]`
 4. Rename and move the binary to a location in your PATH:
@@ -23,6 +43,7 @@ To verify the integrity of your downloaded binary:
     ```bash
     sha256sum op-verify_[version]_[os]_[arch]
     ```
+1. Compare the two checksums to ensure they match
 
 ### Option 2: Build from Source
 
