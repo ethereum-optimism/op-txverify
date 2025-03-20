@@ -20,7 +20,7 @@ builds:
       - arm64
 
 archives:
-  - formats: zip
+  - formats: binary
     files:
       - none*
     name_template: >-
