@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ethereum-optimism/op-verify/core"
-	"github.com/ethereum-optimism/op-verify/output"
+	"github.com/ethereum-optimism/op-txverify/core"
+	"github.com/ethereum-optimism/op-txverify/output"
 	cli "github.com/urfave/cli/v2"
 )
 
 func main() {
 	app := &cli.App{
-		Name:  "op-verify",
+		Name:  "op-txverify",
 		Usage: "Verify and generate Optimism transactions",
 		Commands: []*cli.Command{
 			{

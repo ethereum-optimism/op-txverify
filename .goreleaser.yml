@@ -4,7 +4,7 @@ before:
     - go mod tidy
 builds:
   - binary: '{{ .ProjectName }}'
-    main: ./cmd/op-verify
+    main: ./cmd/op-txverify
     env:
       - CGO_ENABLED=0
     mod_timestamp: '{{ .CommitTimestamp }}'
