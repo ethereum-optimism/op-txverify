@@ -84,7 +84,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 		if value, ok := value.(common.Address); ok {
 			contractInfo, isKnownContract := GetKnownContract(value.Hex(), chainID)
 			if isKnownContract {
-				parsedArgs[key] = fmt.Sprintf("%s (%s ✅)", value, contractInfo.Name)
+				parsedArgs[key] = fmt.Sprintf("%s (%s 🔍)", value, contractInfo.Name)
 			}
 		}
 	}
@@ -124,6 +124,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 
 // ParseDecimals parses the amount and returns it as a human-readable string
 // with the correct number of decimals and comma grouping in the integer portion.
+// If the decimal portion is all zeros, it will show only 2 decimal places.
 func ParseDecimals(amount *big.Int, decimals int) string {
 	amountStr := amount.String()
 
@@ -143,10 +144,34 @@ func ParseDecimals(amount *big.Int, decimals int) string {
 	// Insert commas into integer part
 	intPartWithCommas := addCommas(intPart)
 
-	// Return final string with optional fractional part
+	// If we have a fractional part
 	if decimals > 0 {
-		return intPartWithCommas + "." + fracPart
+		// Check if all digits in fracPart are zeros
+		allZeros := true
+		for _, c := range fracPart {
+			if c != '0' {
+				allZeros = false
+				break
+			}
+		}
+
+		if allZeros {
+			// If all zeros, just show 2 decimal places
+			if len(fracPart) >= 2 {
+				return intPartWithCommas + "." + fracPart[:2]
+			}
+			return intPartWithCommas + "." + fracPart + strings.Repeat("0", 2-len(fracPart))
+		} else {
+			// Trim trailing zeros
+			for len(fracPart) > 0 && fracPart[len(fracPart)-1] == '0' {
+				fracPart = fracPart[:len(fracPart)-1]
+			}
+			if len(fracPart) > 0 {
+				return intPartWithCommas + "." + fracPart
+			}
+		}
 	}
+
 	return intPartWithCommas
 }
 
