@@ -1,4 +1,4 @@
-module github.com/ethereum-optimism/op-verify
+module github.com/ethereum-optimism/op-txverify
 
 go 1.23.0
 

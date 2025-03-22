@@ -10,7 +10,7 @@ import (
 
 	"encoding/hex"
 
-	"github.com/ethereum-optimism/op-verify/core"
+	"github.com/ethereum-optimism/op-txverify/core"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fatih/color"
 )

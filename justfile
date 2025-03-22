@@ -20,7 +20,7 @@ lint:
 # Build the project
 build:
   mkdir -p dist
-  go build -o dist/op-verify ./cmd/op-verify
+  go build -o dist/op-txverify ./cmd/op-txverify
   @echo "Build completed"
 
 # Run goreleaser in local mode (no publishing)
