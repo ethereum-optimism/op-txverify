@@ -79,8 +79,8 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(USDCMainnetAddress):     {Name: "USDC", Decimals: 6},
 	},
 	OPMainnetChainID: {
-		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND CALL ONLY", Decimals: 0},
-		strings.ToLower(SafeMultisendCallOnly141): {Name: "GNOSIS SAFE MULTISEND CALL ONLY", Decimals: 0},
+		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(SafeMultisendCallOnly141): {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
 		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
 		strings.ToLower(Multicall3Delegatecall):   {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
 		strings.ToLower(OPTokenAddress):           {Name: "OP TOKEN", Decimals: 18},

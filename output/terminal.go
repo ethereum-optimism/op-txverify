@@ -25,11 +25,12 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	label := color.New(color.FgMagenta).SprintFunc()
 	bold := color.New(color.Bold).SprintFunc()
 	yellow := color.New(color.FgYellow).SprintFunc()
+	warning := color.New(color.FgYellow, color.Bold).SprintFunc()
 	important := color.New(color.FgRed, color.Bold).SprintFunc()
 
 	// Print basic transaction details
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, heading("BASIC TRANSACTION DETAILS"))
+	fmt.Fprintln(w, heading("TRANSACTION SUMMARY"))
 	fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 
 	// Extract transaction details
@@ -39,14 +40,14 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	safeContractInfo, isKnownSafeContract := core.GetKnownContract(tx.Safe, uint64(tx.Chain))
 	safeDisplay := tx.Safe
 	if isKnownSafeContract {
-		safeDisplay = fmt.Sprintf("%s (%s ✅)", tx.Safe, safeContractInfo.Name)
+		safeDisplay = fmt.Sprintf("%s (%s 🔍)", tx.Safe, safeContractInfo.Name)
 	}
 
 	// Display verified Target if we can
 	targetContractInfo, isKnownTargetContract := core.GetKnownContract(tx.To, uint64(tx.Chain))
 	targetDisplay := tx.To
 	if isKnownTargetContract {
-		targetDisplay = fmt.Sprintf("%s (%s ✅)", tx.To, targetContractInfo.Name)
+		targetDisplay = fmt.Sprintf("%s (%s 🔍)", tx.To, targetContractInfo.Name)
 	}
 
 	// Parse out the operation being performed
@@ -66,7 +67,7 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	network, isKnownNetwork := core.ChainNames[uint64(tx.Chain)]
 	chainDisplay := fmt.Sprintf("%d", int(tx.Chain))
 	if isKnownNetwork {
-		chainDisplay = fmt.Sprintf("%d (%s ✅)", int(tx.Chain), network)
+		chainDisplay = fmt.Sprintf("%d (%s 🔍)", int(tx.Chain), network)
 	}
 
 	fmt.Fprintf(w, "%s: %s\n", bold("Safe"), safeDisplay)
@@ -79,9 +80,13 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 
 	// Check if this is a nested transaction
 	if result.NestedResult != nil {
-		fmt.Fprintln(w, important("⚠️  NESTED TRANSACTION DETECTED  ⚠️"))
+		fmt.Fprintln(w, warning("⚠️  WARNING: CHILD TRANSACTION DETECTED  ⚠️"))
 		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-		fmt.Fprintln(w, bold("This transaction is approving the execution of another transaction."))
+		fmt.Fprintln(w, bold("This transaction is approving the execution of a transaction in a child Safe."))
+		fmt.Fprintln(w, "")
+
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, important("⬇️  START OF CHILD TRANSACTION DETAILS  ⬇️"))
 		fmt.Fprintln(w, "")
 
 		nestedTx := result.NestedResult.Transaction
@@ -90,28 +95,22 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 		nestedSafeInfo, isKnownNestedSafe := core.GetKnownContract(nestedTx.Safe, uint64(nestedTx.Chain))
 		nestedSafeDisplay := nestedTx.Safe
 		if isKnownNestedSafe {
-			nestedSafeDisplay = fmt.Sprintf("%s (%s ✅)", nestedTx.Safe, nestedSafeInfo.Name)
+			nestedSafeDisplay = fmt.Sprintf("%s (%s 🔍)", nestedTx.Safe, nestedSafeInfo.Name)
 		}
 
-		fmt.Fprintln(w, heading("INNER TRANSACTION SUMMARY"))
+		fmt.Fprintln(w, heading("CHILD TRANSACTION SUMMARY"))
 		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-		fmt.Fprintf(w, "%s: %s\n", bold("Inner Safe"), nestedSafeDisplay)
-		fmt.Fprintf(w, "%s: %d\n", bold("Inner Nonce"), nestedTx.Nonce)
-		fmt.Fprintf(w, "%s: %s\n", bold("Inner Hash"), result.NestedResult.ApproveHash)
+		fmt.Fprintf(w, "%s: %s\n", bold("Child Safe"), nestedSafeDisplay)
+		fmt.Fprintf(w, "%s: %d\n", bold("Child Nonce"), nestedTx.Nonce)
+		fmt.Fprintf(w, "%s: %s\n", bold("Child Hash"), result.NestedResult.ApproveHash)
 		fmt.Fprintln(w, "")
 
-		// Print inner call details
-		fmt.Fprintln(w, heading("INNER TRANSACTION DETAILS"))
-		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-		fmt.Fprintln(w, bold("The following shows what the inner transaction will do when executed:"))
-		fmt.Fprintln(w, "")
-
-		// Use the existing function to print the inner call details
+		// Use the existing function to print the child call details
 		printCallDetails(w, result.NestedResult.Call, 0, heading, divider, label, yellow, bold)
 
-		// Add a divider after the inner details
-		fmt.Fprintln(w, important("⚠️  END OF INNER TRANSACTION DETAILS  ⚠️"))
-		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+		// Add a divider after the child details
+		fmt.Fprintln(w, important("⬆️   END OF CHILD TRANSACTION DETAILS   ⬆️"))
+		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "")
 	}
 
@@ -147,7 +146,7 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divider, label, yellow, bold func(a ...interface{}) string) {
 	// Determine heading based on depth
 	if depth == 0 {
-		fmt.Fprintln(w, heading("TRANSACTION DETAILS"))
+		fmt.Fprintln(w, heading("FUNCTION CALL DETAILS"))
 	} else {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "%s\n", heading(fmt.Sprintf("SUBCALL DETAILS (SUBCALL #%d)", depth)))
@@ -157,25 +156,19 @@ func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divid
 	// Print target and function name
 	targetDisplay := call.Target
 	if call.TargetName != "" {
-		targetDisplay = fmt.Sprintf("%s (%s ✅)", call.Target, call.TargetName)
+		targetDisplay = fmt.Sprintf("%s (%s 🔍)", call.Target, call.TargetName)
 	}
 	fmt.Fprintf(w, "%s: %s\n", label("Target"), targetDisplay)
-	fmt.Fprintf(w, "%s: %s\n\n", label("Function"), call.FunctionName)
+	fmt.Fprintf(w, "%s: %s\n", label("Function"), call.FunctionName)
 
 	// If there's raw data, print it
 	if call.RawData != "" {
-		fmt.Fprintln(w, label(bold("RAW DATA:")))
-		fmt.Fprintln(w, label("────────────────────────────────────────────────────────"))
-		fmt.Fprintln(w, call.RawData)
-		fmt.Fprintln(w, "")
+		fmt.Fprintf(w, "%s: %s\n\n", label("Calldata"), call.RawData)
 		return
 	}
 
 	// If there's parsed data, print it
 	if call.ParsedData != nil {
-		fmt.Fprintln(w, label(bold("PARSED DATA")))
-		fmt.Fprintln(w, label("────────────────────────────────────────────────────────"))
-
 		// Check if ParsedData is a map
 		if parsedMap, ok := call.ParsedData.(map[string]interface{}); ok {
 			// Get keys and sort them
@@ -210,7 +203,8 @@ func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divid
 
 	// If there are subcalls, print them recursively
 	if len(call.SubCalls) > 0 {
-		fmt.Fprintln(w, heading("THIS TRANSACTION INCLUDES NESTED SUBCALLS"))
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, heading("THIS TRANSACTION INCLUDES MULTIPLE CONTRACT INTERACTIONS"))
 		fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 		fmt.Fprintf(w, "%s: %d\n", bold("Number of subcalls"), len(call.SubCalls))
 
