@@ -29,7 +29,6 @@ archives:
       {{- if eq .Arch "amd64" }}amd64
       {{- else if eq .Arch "arm64" }}arm64
       {{- else }}{{ .Arch }}{{ end }}
-    mode: 0755
 
 checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
