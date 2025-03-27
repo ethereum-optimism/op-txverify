@@ -144,6 +144,8 @@ var KnownABIJSON = []string{
 	`[{"inputs":[{"name":"targets","type":"address[]"},{"name":"values","type":"uint256[]"},{"name":"calldatas","type":"bytes[]"},{"name":"description","type":"string"},{"name":"proposalType","type":"uint8"}],"name":"propose","type":"function"}]`,
 	`[{"inputs":[{"name":"opChainConfigs","type":"tuple[]","components":[{"name":"systemConfigProxy","type":"address"},{"name":"proxyAdmin","type":"address"},{"name":"absolutePrestate","type":"bytes32"}]}],"name":"upgrade","type":"function"}]`,
 	`[{"inputs":[{"components":[{"name":"schema","type":"bytes32"},{"components":[{"name":"recipient","type":"address"},{"name":"expirationTime","type":"uint64"},{"name":"revocable","type":"bool"},{"name":"refUID","type":"bytes32"},{"name":"data","type":"bytes"},{"name":"value","type":"uint256"}],"name":"data","type":"tuple"}],"name":"request","type":"tuple"}],"name":"attest","type":"function"}]`,
+	`[{"inputs":[{"name":"owner","type":"address"},{"name":"threshold","type":"uint256"}],"name":"addOwnerWithThreshold","type":"function"}]`,
+	`[{"inputs":[{"name":"prevOwner","type":"address"},{"name":"owner","type":"address"},{"name":"threshold","type":"uint256"}],"name":"removeOwner","type":"function"}]`,
 }
 
 // Initialize known functions
