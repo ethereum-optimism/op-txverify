@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>op-txverify reader</title>
+    <title>op-verify reader</title>
     <style>
         /* Base styles */
         body { 
@@ -16,7 +16,7 @@
             align-items: center;
             min-height: 100vh;
         }
-
+        
         /* Layout */
         .container { 
             width: 700px; /* Increased from max-width: 640px */
@@ -198,10 +198,19 @@
         }
     </style>
 
-    <!-- External libraries -->
-    <script src="/lib/qrscanner/qr-scanner.umd.min.js"></script>
-    <script src="/lib/fflate/index.min.js"></script>
-    <script src="/lib/erasure/erasure.js"></script>
+    <!-- External libraries first -->
+    <script src="./lib/qrscanner.js"></script>
+    <script src="./lib/fflate.js"></script>
+    <script src="./lib/erasure.js"></script>
+    <script src="./lib/ethers.js"></script>
+
+    <!-- Utility JavaScript in dependency order -->
+    <script src="./core/constants.js"></script>
+    <script src="./core/hashing.js"></script>
+    <script src="./core/parsing.js"></script>
+    <script src="./core/verification.js"></script>
+    <script src="./core/formatting.js"></script>
+    <script src="./core/ui.js"></script>
 </head>
 <body>
     <div class="container">
@@ -211,11 +220,12 @@
             </div>
             <div class="scanner-glow"></div>
             <div class="completion-circle">
-                <img src="/lib/sunny.png" alt="Sunny" class="sunny-image">
-                <div class="success-message">Scan successful! You may now close this window.</div>
+                <img src="./assets/sunny.png" alt="Sunny" class="sunny-image">
+                <div class="success-message">Scan successful! Results below.</div>
             </div>
             <div id="shards-container"></div>
         </div>
+        <div id="verification-result"></div>
     </div>
 
     <script>
@@ -245,7 +255,8 @@
             shardsContainer: document.getElementById('shards-container'),
             cameraContainer: document.getElementById('scanbot-camera-container'),
             scannerGlow: document.querySelector('.scanner-glow'),
-            completionCircle: document.querySelector('.completion-circle')
+            completionCircle: document.querySelector('.completion-circle'),
+            verificationResult: document.getElementById('verification-result')
         };
 
         // ===== APPLICATION STATE =====
@@ -258,9 +269,9 @@
             lastScanned: "",         // Text of last scanned QR code
             qrScanner: null,         // Reference to QR Scanner
             fullData: null,          // Reconstructed data
-            expectedFullChecksum: null, // Expected checksum of full data
-            latestReceivedPart: null, // Most recently received share number
-            originalSize: 0          // Original size of the compressed data
+            expectedFullChecksum: null, // Checksum of full data
+            latestReceivedPart: null,  // Last received part
+            originalSize: 0          // Original size of data
         };
         
         // ===== UTILITY FUNCTIONS =====
@@ -490,7 +501,7 @@
                     // Check if we have enough shares to reconstruct
                     const receivedCount = Object.keys(state.receivedShares).length;
                     if (receivedCount >= state.originalBlobs + state.allowedFailures) {
-                        await reconstructSecretAndVerify();
+                        await reconstructSecret();
                     }
                 } else {
                     // Rescanned share
@@ -505,7 +516,7 @@
         /**
          * Reconstructs and verifies the secret from collected shares
          */
-        async function reconstructSecretAndVerify() {
+        async function reconstructSecret() {
             try {
                 // Convert shares back to Uint8Arrays and place in correct positions
                 const encodedShares = new Array(state.totalShares);
@@ -546,8 +557,8 @@
                 
                 // Decompress the data
                 const decompressedBytes = fflate.unzlibSync(reconstructedData);
-                const decodedData = fflate.strFromU8(decompressedBytes);
-                state.fullData = decodedData;
+                const decompressedString = fflate.strFromU8(decompressedBytes);
+                state.fullData = decompressedString;
                 
                 // Mark all shards as received
                 const shards = DOM.shardsContainer.querySelectorAll('.shard');
@@ -563,44 +574,55 @@
                 DOM.scannerGlow.style.display = 'none';
                 DOM.completionCircle.style.display = 'flex';
                 
-                console.log(state.fullData)
-                // Send data to server
-                sendResultToServer(state.fullData);
+                // Process the reconstructed data locally instead of sending to server
+                processReconstructedData(state.fullData);
             } catch (error) {
                 console.error("Error reconstructing secret:", error);
             }
         }
         
         /**
-         * Sends reconstructed data to the server
-         * @param {string} data - Reconstructed data to send
+         * Processes the reconstructed data to verify and display the transaction
+         * @param {string} data - The reconstructed JSON data
          */
-        function sendResultToServer(data) {
-            fetch('/result', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'data=' + encodeURIComponent(data)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Show success message
-                    const successMessage = document.querySelector('.success-message');
-                    successMessage.style.opacity = '1';
-                    
-                    // Still try to close window (may be blocked by browser)
-                    // setTimeout(() => window.close(), 1000);
-                } else {
-                    console.error('Server error:', data.message || 'Unknown error');
-                }
-            })
-            .catch(err => {
-                console.error('Error sending result:', err);
-            });
+        function processReconstructedData(data) {
+            try {
+                // Parse the transaction
+                const tx = JSON.parse(data);
+                
+                // Verify the transaction
+                const result = verifyTransaction(tx, { verbose: true });
+                
+                // Display the verification result
+                displayVerificationResult(result);
+                
+                // Display success message
+                const successMessage = document.querySelector('.success-message');
+                successMessage.style.opacity = '1';
+            } catch (error) {
+                console.error("Error processing data:", error);
+                
+                // Show error message
+                const successMessage = document.querySelector('.success-message');
+                successMessage.textContent = 'Error processing data. See console for details.';
+                successMessage.style.color = '#FF5252';
+                successMessage.style.opacity = '1';
+            }
         }
-
+        
+        /**
+         * Displays the verification result in the UI
+         * @param {Object} result - The verification result object
+         */
+        function displayVerificationResult(result) {
+            // Use our new modern UI component
+            const verificationElement = createVerificationResult(result);
+            
+            // Add the result container to the DOM
+            DOM.verificationResult.innerHTML = '';
+            DOM.verificationResult.appendChild(verificationElement);
+        }
+        
         /**
          * Resets the transfer state
          */
@@ -618,11 +640,8 @@
         }
         
         // ===== EVENT HANDLERS =====
-        window.addEventListener('DOMContentLoaded', initializeScanner);
-        window.addEventListener('beforeunload', () => {
-            if (state.qrScanner) {
-                state.qrScanner.destroy();
-            }
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeScanner();
         });
     </script>
 </body>
