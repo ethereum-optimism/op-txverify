@@ -14,8 +14,9 @@ const (
 	SafeTxTypehash          = "0xbb8310d486368db6bd6f849402fdd73ad53d316b5a4b2644ad6efe0f941286d8"
 
 	// Function signatures needed for parseMulticall
-	SafeMultisendSig = "multiSend(bytes)"
-	Aggregate3Sig    = "aggregate3((address,bool,bytes)[])"
+	SafeMultisendSig   = "multiSend(bytes)"
+	Aggregate3Sig      = "aggregate3((address,bool,bytes)[])"
+	Aggregate3ValueSig = "aggregate3Value((address,bool,uint256,bytes)[])"
 )
 
 // Known contract addresses
@@ -30,6 +31,7 @@ const (
 	OptimismGovernor         = "0xcDF27F107725988f2261Ce2256bDfCdE8B382B10"
 	OPGrants1                = "0x2501c477D0A35545a387Aa4A3EEe4292A9a8B3F0"
 	OPGrants2                = "0x19793c7824Be70ec58BB673CA42D2779d12581BE"
+	ProxyAdminOwner          = "0x5a0Aae59D09fccBdDb6C6CcEB07B7279367C3d2A"
 )
 
 // Functions on ERC20 tokens that require decimal adjustment
@@ -77,6 +79,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(Multicall3Address):      {Name: "MULTICALL3", Decimals: 0},
 		strings.ToLower(Multicall3Delegatecall): {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
 		strings.ToLower(USDCMainnetAddress):     {Name: "USDC", Decimals: 6},
+		strings.ToLower(ProxyAdminOwner):        {Name: "SUPERCHAIN PROXY ADMIN OWNER", Decimals: 0},
 	},
 	OPMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -138,6 +141,7 @@ var KnownABIJSON = []string{
 	`[{"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"decreaseAllowance","type":"function"}]`,
 	`[{"inputs":[{"name":"hashToApprove","type":"bytes32"}],"name":"approveHash","type":"function"}]`,
 	`[{"inputs":[{"name":"calls","type":"tuple[]","components":[{"name":"target","type":"address"},{"name":"allowFailure","type":"bool"},{"name":"callData","type":"bytes"}]}],"name":"aggregate3","type":"function"}]`,
+	`[{"inputs":[{"name":"calls","type":"tuple[]","components":[{"name":"target","type":"address"},{"name":"allowFailure","type":"bool"},{"name":"value","type":"uint256"},{"name":"callData","type":"bytes"}]}],"name":"aggregate3Value","type":"function"}]`,
 	`[{"inputs":[{"name":"transactions","type":"bytes"}],"name":"multiSend","type":"function"}]`,
 	`[{"inputs":[{"name":"agreementClass","type":"address"},{"name":"callData","type":"bytes"},{"name":"userData","type":"bytes"}],"name":"callAgreement","type":"function"}]`,
 	`[{"inputs":[{"name":"superToken","type":"address"},{"name":"receiver","type":"address"},{"name":"totalAmount","type":"uint256"},{"name":"totalDuration","type":"uint32"},{"name":"startDate","type":"uint32"},{"name":"cliffPeriod","type":"uint32"},{"name":"claimPeriod","type":"uint32"}],"name":"createVestingScheduleFromAmountAndDuration","type":"function"}]`,
