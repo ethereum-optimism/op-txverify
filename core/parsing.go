@@ -95,7 +95,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 		isMulticallContract = chainMulticalls[normalizedTo]
 	}
 
-	isMulticallFunction := functionInfo.Name == "multiSend" || functionInfo.Name == "aggregate3"
+	isMulticallFunction := functionInfo.Name == "multiSend" || functionInfo.Name == "aggregate3" || functionInfo.Name == "aggregate3Value"
 
 	if isMulticallContract && isMulticallFunction {
 		// Parse subcalls - passing contract address, chain ID, and full function info
@@ -413,6 +413,81 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 				calls[i] = Call3{
 					Target:       targetField.Interface().(common.Address),
 					AllowFailure: allowFailureField.Interface().(bool),
+					CallData:     callDataField.Interface().([]byte),
+				}
+			}
+
+			// Parse aggregate3 calldata
+			for _, call := range calls {
+				subcall, err := ParseTransactionData(call.Target.Hex(), "0x"+hex.EncodeToString(call.CallData), chainID, options)
+				if err != nil {
+					continue
+				}
+
+				subcalls = append(subcalls, *subcall)
+			}
+		} else if functionInfo.Signature == Aggregate3ValueSig {
+			// Define the struct type for the calls
+			type Call3 struct {
+				Target       common.Address
+				AllowFailure bool
+				Value        *big.Int
+				CallData     []byte
+			}
+
+			// Get and validate the raw calls data
+			rawCalls, ok := args["calls"]
+			if !ok {
+				return nil, errors.New("missing calls in aggregate3 data")
+			}
+
+			// Use reflection to convert the data to our expected type
+			rawCallsValue := reflect.ValueOf(rawCalls)
+			if rawCallsValue.Kind() != reflect.Slice {
+				return nil, errors.New("aggregate3 calls must be a slice")
+			}
+
+			// Create the result slice with the correct capacity
+			calls := make([]Call3, rawCallsValue.Len())
+
+			// Process each call in the slice
+			for i := 0; i < rawCallsValue.Len(); i++ {
+				callValue := rawCallsValue.Index(i)
+
+				// Extract the required fields using case-insensitive matching
+				targetField := callValue.FieldByNameFunc(func(name string) bool {
+					return strings.EqualFold(name, "target")
+				})
+				if !targetField.IsValid() {
+					return nil, errors.New("missing target field in call")
+				}
+
+				allowFailureField := callValue.FieldByNameFunc(func(name string) bool {
+					return strings.EqualFold(name, "allowfailure")
+				})
+				if !allowFailureField.IsValid() {
+					return nil, errors.New("missing allowFailure field in call")
+				}
+
+				valueField := callValue.FieldByNameFunc(func(name string) bool {
+					return strings.EqualFold(name, "value")
+				})
+				if !valueField.IsValid() {
+					return nil, errors.New("missing value field in call")
+				}
+
+				callDataField := callValue.FieldByNameFunc(func(name string) bool {
+					return strings.EqualFold(name, "calldata")
+				})
+				if !callDataField.IsValid() {
+					return nil, errors.New("missing callData field in call")
+				}
+
+				// Populate the result struct
+				calls[i] = Call3{
+					Target:       targetField.Interface().(common.Address),
+					AllowFailure: allowFailureField.Interface().(bool),
+					Value:        valueField.Interface().(*big.Int),
 					CallData:     callDataField.Interface().([]byte),
 				}
 			}
