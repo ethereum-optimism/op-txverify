@@ -120,9 +120,9 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	// Print hashes
 	fmt.Fprintln(w, heading("HASHES"))
 	fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-	fmt.Fprintf(w, "%s:  %s\n", label(bold("Domain Hash")), result.DomainHash)
-	fmt.Fprintf(w, "%s: %s\n", label(bold("Message Hash")), result.MessageHash)
-	fmt.Fprintf(w, "%s: %s\n", label(bold("Safe Tx Hash")), result.ApproveHash)
+	fmt.Fprintf(w, "%s:  %s\n", label(bold("Domain Hash")), formatHash(result.DomainHash))
+	fmt.Fprintf(w, "%s: %s\n", label(bold("Message Hash")), formatHash(result.MessageHash))
+	fmt.Fprintf(w, "%s: %s\n", label(bold("Safe Tx Hash")), formatHash(result.ApproveHash))
 	fmt.Fprintln(w, "")
 
 	// Print verification instructions
@@ -419,4 +419,13 @@ func formatSimpleValue(value interface{}) interface{} {
 	default:
 		return v
 	}
+}
+
+// formatHash ensures the '0x' prefix is lowercase and the rest of the hash is uppercase.
+func formatHash(hash string) string {
+	if strings.HasPrefix(hash, "0x") {
+		return "0x" + strings.ToUpper(hash[2:])
+	}
+	// Fallback if no "0x" prefix
+	return strings.ToUpper(hash)
 }
