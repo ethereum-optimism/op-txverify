@@ -10,8 +10,10 @@ import (
 
 const (
 	// EIP-712 constants
-	DomainSeparatorTypehash = "0x47e79534a245952e8b16893a336b85a3d9ea9fa8c573f3d803afb92a79469218"
-	SafeTxTypehash          = "0xbb8310d486368db6bd6f849402fdd73ad53d316b5a4b2644ad6efe0f941286d8"
+	DomainSeparatorTypehash    = "0x47e79534a245952e8b16893a336b85a3d9ea9fa8c573f3d803afb92a79469218"
+	DomainSeparatorTypehashOld = "0x035aff83d86937d35b32e04f0ddc6ff469290eef2f1b692d8a815c89404d4749"
+	SafeTxTypehash             = "0xbb8310d486368db6bd6f849402fdd73ad53d316b5a4b2644ad6efe0f941286d8"
+	SafeTxTypehashOld          = "0x14d461bc7412367e924637b363c7bf29b8f47e2f84869f4426e5633d8af47b20"
 
 	// Function signatures needed for parseMulticall
 	SafeMultisendSig   = "multiSend(bytes)"

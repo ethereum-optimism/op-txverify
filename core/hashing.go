@@ -3,47 +3,92 @@ package core
 import (
 	"math/big"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+// Define version constraints for Safe versions where behavior changed
+var (
+	version120Constraint, _ = semver.NewConstraint("<= 1.2.0")
+	version100Constraint, _ = semver.NewConstraint("< 1.0.0")
+)
+
 // CalculateDomainHash calculates the EIP-712 domain hash for a Safe transaction
 func CalculateDomainHash(tx SafeTransaction) (string, error) {
-	// Parse the ABI types
-	domainType, err := abi.NewType("tuple", "", []abi.ArgumentMarshaling{
-		{Name: "typehash", Type: "bytes32"},
-		{Name: "chainId", Type: "uint256"},
-		{Name: "verifyingContract", Type: "address"},
-	})
+	currentVersion, err := semver.NewVersion(tx.SafeVersion)
 	if err != nil {
 		return "", err
 	}
 
-	// Create the ABI arguments
-	arguments := abi.Arguments{
-		abi.Argument{Type: domainType, Name: "domain"},
-	}
+	var domainType abi.Type
+	var arguments abi.Arguments
+	var packed []byte
 
-	// Convert inputs to appropriate types
-	typehash := common.HexToHash(DomainSeparatorTypehash)
-	chainID := big.NewInt(int64(tx.Chain))
-	safeAddress := common.HexToAddress(tx.Safe)
+	if version120Constraint.Check(currentVersion) {
+		// Legacy domain hash calculation (<= 1.2.0)
+		domainType, err = abi.NewType("tuple", "", []abi.ArgumentMarshaling{
+			{Name: "typehash", Type: "bytes32"},
+			// chainId omitted for versions <= 1.2.0
+			{Name: "verifyingContract", Type: "address"},
+		})
+		if err != nil {
+			return "", err
+		}
 
-	// Pack the values
-	packed, err := arguments.Pack(
-		struct {
-			Typehash          [32]byte
-			ChainId           *big.Int
-			VerifyingContract common.Address
-		}{
-			Typehash:          typehash,
-			ChainId:           chainID,
-			VerifyingContract: safeAddress,
-		},
-	)
-	if err != nil {
-		return "", err
+		arguments = abi.Arguments{
+			abi.Argument{Type: domainType, Name: "domain"},
+		}
+
+		typehash := common.HexToHash(DomainSeparatorTypehashOld)
+		safeAddress := common.HexToAddress(tx.Safe)
+
+		packed, err = arguments.Pack(
+			struct {
+				Typehash          [32]byte
+				VerifyingContract common.Address
+			}{
+				Typehash:          typehash,
+				VerifyingContract: safeAddress,
+			},
+		)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		// Current domain hash calculation (> 1.2.0)
+		domainType, err = abi.NewType("tuple", "", []abi.ArgumentMarshaling{
+			{Name: "typehash", Type: "bytes32"},
+			{Name: "chainId", Type: "uint256"},
+			{Name: "verifyingContract", Type: "address"},
+		})
+		if err != nil {
+			return "", err
+		}
+
+		arguments = abi.Arguments{
+			abi.Argument{Type: domainType, Name: "domain"},
+		}
+
+		typehash := common.HexToHash(DomainSeparatorTypehash)
+		chainID := big.NewInt(int64(tx.Chain))
+		safeAddress := common.HexToAddress(tx.Safe)
+
+		packed, err = arguments.Pack(
+			struct {
+				Typehash          [32]byte
+				ChainId           *big.Int
+				VerifyingContract common.Address
+			}{
+				Typehash:          typehash,
+				ChainId:           chainID,
+				VerifyingContract: safeAddress,
+			},
+		)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	// Calculate hash
@@ -53,7 +98,12 @@ func CalculateDomainHash(tx SafeTransaction) (string, error) {
 
 // CalculateMessageHash calculates the EIP-712 message hash for a Safe transaction
 func CalculateMessageHash(tx SafeTransaction) (string, error) {
-	// Parse the ABI types
+	currentVersion, err := semver.NewVersion(tx.SafeVersion)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse the ABI types (structure is the same, only typehash might change)
 	messageType, err := abi.NewType("tuple", "", []abi.ArgumentMarshaling{
 		{Name: "typehash", Type: "bytes32"},
 		{Name: "to", Type: "address"},
@@ -76,8 +126,16 @@ func CalculateMessageHash(tx SafeTransaction) (string, error) {
 		abi.Argument{Type: messageType, Name: "message"},
 	}
 
+	// Determine the correct typehash based on version
+	var safeTxTypehashToUse string
+	if version100Constraint.Check(currentVersion) {
+		safeTxTypehashToUse = SafeTxTypehashOld
+	} else {
+		safeTxTypehashToUse = SafeTxTypehash
+	}
+
 	// Convert inputs to appropriate types
-	typehash := common.HexToHash(SafeTxTypehash)
+	typehash := common.HexToHash(safeTxTypehashToUse)
 	toAddress := common.HexToAddress(tx.To)
 
 	// Convert value to big.Int
@@ -131,14 +189,15 @@ func CalculateMessageHash(tx SafeTransaction) (string, error) {
 }
 
 // CalculateApproveHash calculates the EIP-712 approve hash for a Safe transaction
+// This function depends on the version-aware CalculateDomainHash and CalculateMessageHash
 func CalculateApproveHash(tx SafeTransaction) (string, error) {
-	// First calculate domain hash
+	// First calculate domain hash (now version-aware)
 	domainHash, err := CalculateDomainHash(tx)
 	if err != nil {
 		return "", err
 	}
 
-	// Then calculate message hash
+	// Then calculate message hash (now version-aware)
 	messageHash, err := CalculateMessageHash(tx)
 	if err != nil {
 		return "", err
