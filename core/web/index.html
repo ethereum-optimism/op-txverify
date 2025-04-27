@@ -366,6 +366,25 @@
             // If it's already a hash, return it cleaned (in case there are spaces or other characters)
             return input.trim();
         }
+
+        // Fetch the Safe version for a given chain and address
+        async function fetchSafeVersion(chainId, safeAddress) {
+            const baseUrl = CHAIN_ID_TO_BASE_URL[chainId];
+            const url = `${baseUrl}/api/v1/safes/${safeAddress}/`;
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch safe version: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                return data.version;
+            } catch (error) {
+                console.error("Error fetching safe version:", error);
+                return null;
+            }
+        }
         
         // Updated to separate API checking from data processing
         async function fetchTransactionData(txHash) {
@@ -435,6 +454,7 @@
                 // Set the nested data
                 nested = {
                     safe: content.safe,
+                    safe_version: await fetchSafeVersion(foundChainId, content.safe),
                     nonce: parseInt(content.nonce),
                     data: content.data,
                     operation: content.operation,
@@ -448,6 +468,7 @@
             // Return the processed transaction data
             return {
                 safe: content.safe,
+                safe_version: await fetchSafeVersion(foundChainId, content.safe),
                 chain: parseInt(foundChainId),
                 to: content.to,
                 value: parseInt(content.value),

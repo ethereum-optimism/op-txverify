@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.23.7
 
 require (
+	github.com/Masterminds/semver/v3 v3.3.1
 	github.com/ethereum/go-ethereum v1.15.5
 	github.com/fatih/color v1.18.0
 	github.com/urfave/cli/v2 v2.27.5

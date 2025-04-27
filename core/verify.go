@@ -17,16 +17,18 @@ type VerificationResult struct {
 
 // Nested represents the data about nested approve hash transactions
 type Nested struct {
-	Safe      string `json:"safe"`
-	Nonce     int    `json:"nonce"`
-	Data      string `json:"data"`
-	Operation int    `json:"operation"`
-	To        string `json:"to"`
+	Safe        string `json:"safe"`
+	SafeVersion string `json:"safe_version"`
+	Nonce       int    `json:"nonce"`
+	Data        string `json:"data"`
+	Operation   int    `json:"operation"`
+	To          string `json:"to"`
 }
 
 // SafeTransaction represents a Gnosis Safe transaction
 type SafeTransaction struct {
 	Safe           string   `json:"safe"`
+	SafeVersion    string   `json:"safe_version"`
 	Chain          int      `json:"chain"`
 	To             string   `json:"to"`
 	Value          int      `json:"value"`
