@@ -60,6 +60,13 @@
         
         .input-group {
             margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .input-group input[type="text"] {
+            flex-grow: 1;
+            margin-right: 10px;
         }
         
         .input-label {
@@ -68,6 +75,35 @@
             margin-bottom: 5px;
             font-weight: 500;
             color: #333333;
+            max-width: 250px;
+            transition: all 0.2s ease;
+        }
+        
+        button#pasteBtn {
+            padding: 0;
+            width: 51px;
+            height: 51px;
+            max-width: none;
+            margin: 0;
+            flex-shrink: 0;
+            border-radius: 12px;
+            border: 1px solid #e0e0e0;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        button#pasteBtn svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+        
+        button#pasteBtn:hover {
+            background-color: #e00319;
+            transform: none;
+            box-shadow: none;
         }
         
         button {
@@ -263,6 +299,9 @@
         
         <div class="input-group">
             <input type="text" id="txInput" placeholder="Paste Safe tx hash or link...">
+            <button id="pasteBtn">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 2H8C6.89543 2 6 2.89543 6 4V18C6 19.1046 6.89543 20 8 20H16C17.1046 20 18 19.1046 18 18V4C18 2.89543 17.1046 2 16 2ZM9 4H15V6H9V4ZM16 18H8V8H16V18Z"/><path d="M10 10H14V12H10V10ZM10 14H14V16H10V14Z"/></svg>
+            </button>
         </div>
         
         <button id="startBtn">Start Display</button>
@@ -290,6 +329,7 @@
         const DOM = {
             txInput: document.getElementById('txInput'),
             startBtn: document.getElementById('startBtn'),
+            pasteBtn: document.getElementById('pasteBtn'),
             status: document.getElementById('status'),
             qrcodeDiv: document.getElementById('qrcode'),
             qrOverlay: document.getElementById('qrOverlay'),
@@ -684,6 +724,20 @@
          * Event Handlers
          */
         
+        // Paste button click handler
+        DOM.pasteBtn.addEventListener('click', async function() {
+            try {
+                const text = await navigator.clipboard.readText();
+                DOM.txInput.value = text;
+                DOM.startBtn.click(); // Programmatically click the Start Display button
+                // Optionally, trigger input event if other parts of the script listen for it
+                // DOM.txInput.dispatchEvent(new Event('input', { bubbles: true }));
+            } catch (err) {
+                console.error('Failed to read clipboard contents: ', err);
+                DOM.status.textContent = "Failed to paste from clipboard. Make sure you've granted permission.";
+            }
+        });
+
         // Start button click handler
         DOM.startBtn.addEventListener('click', async function() {
             // Stop any ongoing display
