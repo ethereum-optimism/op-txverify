@@ -140,12 +140,12 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 					Value          string `json:"value"`
 					Data           string `json:"data"`
 					Operation      int    `json:"operation"`
-					SafeTxGas      int    `json:"safeTxGas"`
-					BaseGas        int    `json:"baseGas"`
+					SafeTxGas      string `json:"safeTxGas"` // API returns as string
+					BaseGas        string `json:"baseGas"`   // API returns as string
 					GasPrice       string `json:"gasPrice"`
 					GasToken       string `json:"gasToken"`
 					RefundReceiver string `json:"refundReceiver"`
-					Nonce          int    `json:"nonce"`
+					Nonce          string `json:"nonce"`
 					Safe           string `json:"safe"`
 				}
 
@@ -153,9 +153,14 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 					return nil, fmt.Errorf("error parsing inner transaction response: %w", err)
 				}
 
-				// Create nested data from outer transaction
+				// Convert string values to integers for inner transaction
+				var innerSafeTxGas, innerBaseGas int
+				fmt.Sscanf(innerTx.SafeTxGas, "%d", &innerSafeTxGas)
+				fmt.Sscanf(innerTx.BaseGas, "%d", &innerBaseGas)
+
+				// Create nested data from outer transaction (using OUTER safe's info)
 				nested = &Nested{
-					Safe:        tx.To, // The safe that the outer transaction is calling
+					Safe:        safeAddress,
 					SafeVersion: safeVersion,
 					Nonce:       int(nonce),
 					Data:        tx.Data,
@@ -168,11 +173,20 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 				content.Value = innerTx.Value
 				content.Data = innerTx.Data
 				content.Operation = innerTx.Operation
-				content.SafeTxGas = innerTx.SafeTxGas
-				content.BaseGas = innerTx.BaseGas
+				content.SafeTxGas = innerSafeTxGas
+				content.BaseGas = innerBaseGas
 				content.GasPrice = innerTx.GasPrice
 				content.GasToken = innerTx.GasToken
 				content.RefundReceiver = innerTx.RefundReceiver
+
+				// For the main transaction, we need the INNER safe's info
+				safeAddress = innerTx.Safe // Update to use inner safe address
+
+				// Fetch the inner safe's version for the main transaction
+				safeVersion, err = fetchSafeVersion(apiURL, innerTx.Safe)
+				if err != nil {
+					return nil, fmt.Errorf("error fetching inner safe version: %w", err)
+				}
 			}
 		}
 	}
@@ -199,6 +213,8 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		Nonce:          int(nonce),
 		Nested:         nested,
 	}
+
+	fmt.Println("safeTx", safeTx)
 
 	return safeTx, nil
 }
