@@ -214,8 +214,6 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		Nested:         nested,
 	}
 
-	fmt.Println("safeTx", safeTx)
-
 	return safeTx, nil
 }
 
