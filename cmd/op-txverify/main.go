@@ -10,10 +10,27 @@ import (
 	cli "github.com/urfave/cli/v2"
 )
 
+// Version can be set at build time with -ldflags "-X main.Version=x.y.z"
+var Version = "dev"
+
+// Commit can be set at build time with -ldflags "-X main.Commit=abc123"
+var Commit = "unknown"
+
 func main() {
+	// Build version string with commit info if available
+	version := Version
+	if Commit != "unknown" && Commit != "" {
+		commitDisplay := Commit
+		if len(Commit) > 8 {
+			commitDisplay = Commit[:8] // Show first 8 chars of commit
+		}
+		version = fmt.Sprintf("%s (commit: %s)", Version, commitDisplay)
+	}
+
 	app := &cli.App{
-		Name:  "op-txverify",
-		Usage: "Verify and generate Optimism transactions",
+		Name:    "op-txverify",
+		Usage:   "Verify and generate Optimism transactions",
+		Version: version,
 		Commands: []*cli.Command{
 			{
 				Name:  "offline",
