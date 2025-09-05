@@ -34,6 +34,7 @@ const (
 	OPGrants1                = "0x2501c477D0A35545a387Aa4A3EEe4292A9a8B3F0"
 	OPGrants2                = "0x19793c7824Be70ec58BB673CA42D2779d12581BE"
 	ProxyAdminOwner          = "0x5a0Aae59D09fccBdDb6C6CcEB07B7279367C3d2A"
+	OptimismPortal           = "0xbEb5Fc579115071764c7423A4f12eDde41f106Ed"
 )
 
 // Functions on ERC20 tokens that require decimal adjustment
@@ -82,6 +83,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(Multicall3Delegatecall): {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
 		strings.ToLower(USDCMainnetAddress):     {Name: "USDC", Decimals: 6},
 		strings.ToLower(ProxyAdminOwner):        {Name: "SUPERCHAIN PROXY ADMIN OWNER", Decimals: 0},
+		strings.ToLower(OptimismPortal):         {Name: "OPTIMISM PORTAL", Decimals: 0},
 	},
 	OPMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -153,6 +155,7 @@ var KnownABIJSON = []string{
 	`[{"inputs":[{"name":"owner","type":"address"},{"name":"threshold","type":"uint256"}],"name":"addOwnerWithThreshold","type":"function"}]`,
 	`[{"inputs":[{"name":"prevOwner","type":"address"},{"name":"owner","type":"address"},{"name":"threshold","type":"uint256"}],"name":"removeOwner","type":"function"}]`,
 	`[{"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"},{"name":"data","type":"bytes"},{"name":"operation","type":"uint8"},{"name":"safeTxGas","type":"uint256"},{"name":"baseGas","type":"uint256"},{"name":"gasPrice","type":"uint256"},{"name":"gasToken","type":"address"},{"name":"refundReceiver","type":"address"},{"name":"signatures","type":"bytes"}],"name":"execTransaction","type":"function"}]`,
+	`[{"inputs":[{"internalType":"address","name":"_to","type":"address"},{"internalType":"uint256","name":"_value","type":"uint256"},{"internalType":"uint64","name":"_gasLimit","type":"uint64"},{"internalType":"bool","name":"_isCreation","type":"bool"},{"internalType":"bytes","name":"_data","type":"bytes"}],"name":"depositTransaction","outputs":[],"stateMutability":"payable","type":"function"}]`,
 }
 
 // Initialize known functions
