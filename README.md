@@ -57,7 +57,7 @@ Steps:
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/op-txverify.git
+    git clone https://github.com/ethereum-optimism/op-txverify.git
     cd op-txverify
     ```
 1. Build using GoReleaser:
