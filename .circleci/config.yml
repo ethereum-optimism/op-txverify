@@ -1,0 +1,81 @@
+version: 2.1
+
+executors:
+  go-executor:
+    docker:
+      - image: cimg/go:1.23
+    environment:
+      GOFLAGS: -mod=readonly
+
+commands:
+  setup-golangci:
+    description: "Install golangci-lint"
+    steps:
+      - run:
+          name: Install golangci-lint
+          command: |
+            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+              | sh -s -- -b /usr/local/bin v1.59.1
+            golangci-lint version
+
+jobs:
+  lint:
+    executor: go-executor
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+            - go-mod-v1-
+      - run:
+          name: Download modules
+          command: go mod download
+      - save_cache:
+          key: go-mod-v1-{{ checksum "go.sum" }}
+          paths:
+            - /go/pkg/mod
+            - ~/.cache/go-build
+      - setup-golangci
+      - run:
+          name: Run golangci-lint
+          command: golangci-lint run --timeout=5m
+
+  test:
+    executor: go-executor
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+            - go-mod-v1-
+      - run:
+          name: Download modules
+          command: go mod download
+      - save_cache:
+          key: go-mod-v1-{{ checksum "go.sum" }}
+          paths:
+            - /go/pkg/mod
+            - ~/.cache/go-build
+      - run:
+          name: Install go-junit-report
+          command: go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+      - run:
+          name: Run tests with coverage and generate JUnit report
+          command: |
+            mkdir -p test-results
+            go test -v -coverprofile=coverage.out ./... | tee test-results/go-test.out
+            /home/circleci/go/bin/go-junit-report < test-results/go-test.out > test-results/junit.xml
+      - store_test_results:
+          path: test-results
+      - store_artifacts:
+          path: test-results
+      - store_artifacts:
+          path: coverage.out
+
+workflows:
+  ci:
+    jobs:
+      - lint
+      - test:
+          requires:
+            - lint
