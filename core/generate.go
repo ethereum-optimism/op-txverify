@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -236,4 +237,249 @@ func getNetworkInfo(network string) (string, uint64, error) {
 	}
 
 	return apiURL, chainID, nil
+}
+
+// chainIDToAPIURL maps chain IDs to their Safe API URLs
+var chainIDToAPIURL = map[uint64]string{
+	MainnetChainID:   "https://safe-transaction-mainnet.safe.global",
+	OPMainnetChainID: "https://safe-transaction-optimism.safe.global",
+}
+
+// ExtractTransactionHash extracts a transaction hash from a Safe URL or returns the hash if already provided
+func ExtractTransactionHash(input string) (string, error) {
+	input = strings.TrimSpace(input)
+
+	// Check if input is a URL
+	if strings.Contains(input, "app.safe.global") && strings.Contains(input, "id=") {
+		// Extract the transaction hash from the URL
+		idParamRegex := regexp.MustCompile(`id=([^&]+)`)
+		matches := idParamRegex.FindStringSubmatch(input)
+		if len(matches) < 2 {
+			return "", fmt.Errorf("could not extract transaction ID from URL")
+		}
+
+		txHash := matches[1]
+
+		// The hash might be part of a longer string like multisig_0x...address_0x...hash
+		if strings.Contains(txHash, "multisig_") && strings.Contains(txHash, "_0x") {
+			parts := strings.Split(txHash, "_")
+			// Return the last part after the last underscore (the actual hash)
+			return parts[len(parts)-1], nil
+		}
+
+		return txHash, nil
+	}
+
+	// If it's already a hash, return it cleaned
+	input = strings.TrimSpace(input)
+	if !strings.HasPrefix(input, "0x") {
+		return "", fmt.Errorf("invalid transaction hash format: must start with 0x")
+	}
+
+	return input, nil
+}
+
+// TransactionMetadata holds information about a transaction retrieved from the API
+type TransactionMetadata struct {
+	Network     string
+	ChainID     uint64
+	SafeAddress string
+	Nonce       uint64
+	Transaction *SafeTransaction
+}
+
+// FetchTransactionByHash fetches transaction data from the Safe API using a transaction hash
+// It tries all supported chains and returns the transaction along with metadata
+func FetchTransactionByHash(txHash string) (*TransactionMetadata, error) {
+	// Validate hash format
+	if !strings.HasPrefix(txHash, "0x") {
+		return nil, fmt.Errorf("invalid transaction hash format: must start with 0x")
+	}
+
+	// Try each supported chain (ensure we try mainnet first)
+	chainIDs := []uint64{MainnetChainID, OPMainnetChainID}
+	var errors []string
+
+	for _, chainID := range chainIDs {
+		apiURL := chainIDToAPIURL[chainID]
+
+		// Construct API endpoint using v2 API
+		endpoint := fmt.Sprintf("%s/api/v2/multisig-transactions/%s/", apiURL, txHash)
+
+		// Make HTTP request
+		resp, err := http.Get(endpoint)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("chain %d: %v", chainID, err))
+			continue
+		}
+
+		// If not found, try next chain
+		if resp.StatusCode == http.StatusNotFound {
+			resp.Body.Close()
+			errors = append(errors, fmt.Sprintf("chain %d: transaction not found", chainID))
+			continue
+		}
+
+		// Check for other errors
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			errors = append(errors, fmt.Sprintf("chain %d: API request failed with status: %s", chainID, resp.Status))
+			continue
+		}
+
+		// Read response body
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("chain %d: error reading response body: %v", chainID, err))
+			continue
+		}
+
+		// Parse response - v2 API returns a single transaction, not wrapped in APIResponse
+		var apiTx struct {
+			Safe           string `json:"safe"`
+			To             string `json:"to"`
+			Value          string `json:"value"`
+			Data           string `json:"data"`
+			Operation      int    `json:"operation"`
+			SafeTxGas      string `json:"safeTxGas"`
+			BaseGas        string `json:"baseGas"`
+			GasPrice       string `json:"gasPrice"`
+			GasToken       string `json:"gasToken"`
+			RefundReceiver string `json:"refundReceiver"`
+			Nonce          string `json:"nonce"`
+		}
+
+		if err := json.Unmarshal(body, &apiTx); err != nil {
+			errors = append(errors, fmt.Sprintf("chain %d: error parsing API response: %v", chainID, err))
+			continue
+		}
+
+		// We found the transaction! Now fetch the Safe version
+		safeAddress := apiTx.Safe
+		safeVersion, err := fetchSafeVersion(apiURL, safeAddress)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching safe version for %s: %w", safeAddress, err)
+		}
+
+		// Parse nonce from string
+		var nonce int
+		fmt.Sscanf(apiTx.Nonce, "%d", &nonce)
+
+		// Check if this is an approveHash transaction
+		var nested *Nested
+		content := apiTx
+
+		if apiTx.Data != "" && strings.HasPrefix(apiTx.Data, "0xd4d9bdcd") {
+			// Extract the hash from the data
+			if len(apiTx.Data) >= 74 {
+				innerHash := "0x" + apiTx.Data[10:74]
+
+				// Fetch the inner transaction
+				innerEndpoint := fmt.Sprintf("%s/api/v2/multisig-transactions/%s/", apiURL, innerHash)
+				innerResp, err := http.Get(innerEndpoint)
+				if err == nil && innerResp.StatusCode == http.StatusOK {
+					innerBody, err := io.ReadAll(innerResp.Body)
+					innerResp.Body.Close()
+					if err == nil {
+						var innerTx struct {
+							To             string `json:"to"`
+							Value          string `json:"value"`
+							Data           string `json:"data"`
+							Operation      int    `json:"operation"`
+							SafeTxGas      string `json:"safeTxGas"`
+							BaseGas        string `json:"baseGas"`
+							GasPrice       string `json:"gasPrice"`
+							GasToken       string `json:"gasToken"`
+							RefundReceiver string `json:"refundReceiver"`
+							Safe           string `json:"safe"`
+						}
+
+						if err := json.Unmarshal(innerBody, &innerTx); err == nil {
+							// Create nested data from outer transaction
+							nested = &Nested{
+								Safe:        safeAddress,
+								SafeVersion: safeVersion,
+								Nonce:       nonce,
+								Data:        apiTx.Data,
+								Operation:   apiTx.Operation,
+								To:          apiTx.To,
+							}
+
+							// Use inner transaction data as the main content
+							content.To = innerTx.To
+							content.Value = innerTx.Value
+							content.Data = innerTx.Data
+							content.Operation = innerTx.Operation
+							content.SafeTxGas = innerTx.SafeTxGas
+							content.BaseGas = innerTx.BaseGas
+							content.GasPrice = innerTx.GasPrice
+							content.GasToken = innerTx.GasToken
+							content.RefundReceiver = innerTx.RefundReceiver
+
+							// Update to use inner safe address
+							safeAddress = innerTx.Safe
+
+							// Fetch the inner safe's version
+							safeVersion, err = fetchSafeVersion(apiURL, innerTx.Safe)
+							if err != nil {
+								return nil, fmt.Errorf("error fetching inner safe version: %w", err)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Convert string values to appropriate types
+		var value, safeTxGas, baseGas, gasPrice int
+		fmt.Sscanf(content.Value, "%d", &value)
+		fmt.Sscanf(content.SafeTxGas, "%d", &safeTxGas)
+		fmt.Sscanf(content.BaseGas, "%d", &baseGas)
+		fmt.Sscanf(content.GasPrice, "%d", &gasPrice)
+
+		// Create SafeTransaction
+		safeTx := &SafeTransaction{
+			Safe:           safeAddress,
+			SafeVersion:    safeVersion,
+			Chain:          int(chainID),
+			To:             content.To,
+			Value:          value,
+			Data:           content.Data,
+			Operation:      content.Operation,
+			SafeTxGas:      safeTxGas,
+			BaseGas:        baseGas,
+			GasPrice:       gasPrice,
+			GasToken:       content.GasToken,
+			RefundReceiver: content.RefundReceiver,
+			Nonce:          nonce,
+			Nested:         nested,
+		}
+
+		// Determine network name from chain ID
+		var networkName string
+		switch chainID {
+		case MainnetChainID:
+			networkName = "ethereum"
+		case OPMainnetChainID:
+			networkName = "op"
+		default:
+			networkName = fmt.Sprintf("chain-%d", chainID)
+		}
+
+		return &TransactionMetadata{
+			Network:     networkName,
+			ChainID:     chainID,
+			SafeAddress: safeAddress,
+			Nonce:       uint64(nonce),
+			Transaction: safeTx,
+		}, nil
+	}
+
+	// If we get here, we didn't find the transaction on any chain
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("transaction not found on any supported chain. Errors: %s", strings.Join(errors, "; "))
+	}
+
+	return nil, fmt.Errorf("transaction not found on any supported chain")
 }

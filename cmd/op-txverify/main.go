@@ -61,21 +61,23 @@ func main() {
 				Usage: "Generate and verify a transaction in one step",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:     "network",
-						Aliases:  []string{"n"},
-						Usage:    "Network name: ethereum, op, base (required)",
-						Required: true,
+						Name:    "tx",
+						Aliases: []string{"t"},
+						Usage:   "Safe transaction hash or link (alternative to --network/--safe/--nonce)",
 					},
 					&cli.StringFlag{
-						Name:     "safe",
-						Aliases:  []string{"a"},
-						Usage:    "Safe address (required)",
-						Required: true,
+						Name:    "network",
+						Aliases: []string{"n"},
+						Usage:   "Network name: ethereum, op, base (required unless --tx is used)",
+					},
+					&cli.StringFlag{
+						Name:    "safe",
+						Aliases: []string{"a"},
+						Usage:   "Safe address (required unless --tx is used)",
 					},
 					&cli.Uint64Flag{
-						Name:     "nonce",
-						Usage:    "Transaction nonce (required)",
-						Required: true,
+						Name:  "nonce",
+						Usage: "Transaction nonce (required unless --tx is used)",
 					},
 					&cli.StringFlag{
 						Name:    "output",
@@ -96,21 +98,23 @@ func main() {
 				Usage: "Generate a transaction JSON file",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:     "network",
-						Aliases:  []string{"n"},
-						Usage:    "Network name: ethereum, op, base (required)",
-						Required: true,
+						Name:    "tx",
+						Aliases: []string{"t"},
+						Usage:   "Safe transaction hash or link (alternative to --network/--safe/--nonce)",
 					},
 					&cli.StringFlag{
-						Name:     "safe",
-						Aliases:  []string{"a"},
-						Usage:    "Safe address (required)",
-						Required: true,
+						Name:    "network",
+						Aliases: []string{"n"},
+						Usage:   "Network name: ethereum, op, base (required unless --tx is used)",
+					},
+					&cli.StringFlag{
+						Name:    "safe",
+						Aliases: []string{"a"},
+						Usage:   "Safe address (required unless --tx is used)",
 					},
 					&cli.Uint64Flag{
-						Name:     "nonce",
-						Usage:    "Transaction nonce (required)",
-						Required: true,
+						Name:  "nonce",
+						Usage: "Transaction nonce (required unless --tx is used)",
 					},
 					&cli.StringFlag{
 						Name:    "output",
@@ -195,24 +199,61 @@ func offlineAction(c *cli.Context) error {
 }
 
 func onlineAction(c *cli.Context) error {
+	txInput := c.String("tx")
 	network := c.String("network")
 	address := c.String("safe")
 	nonce := c.Uint64("nonce")
 	outputFormat := c.String("output")
 	verbose := c.Bool("verbose")
 
-	// Validate network
-	if network != "ethereum" && network != "op" && network != "base" {
-		return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
-	}
+	var tx *core.SafeTransaction
+	var err error
 
-	// Strip the chain prefix if present
-	address = core.StripChainPrefix(address)
+	// Check if using new --tx flag or old --network/--safe/--nonce flags
+	if txInput != "" {
+		// New method: fetch by transaction hash or link
 
-	// Generate the transaction
-	tx, err := core.GenerateTransaction(network, address, nonce)
-	if err != nil {
-		return err
+		// Extract transaction hash from URL or use directly
+		txHash, err := core.ExtractTransactionHash(txInput)
+		if err != nil {
+			return fmt.Errorf("error parsing transaction input: %w", err)
+		}
+
+		// Fetch transaction data from API
+		metadata, err := core.FetchTransactionByHash(txHash)
+		if err != nil {
+			return fmt.Errorf("error fetching transaction: %w", err)
+		}
+
+		tx = metadata.Transaction
+
+		// Print metadata if verbose
+		if verbose {
+			fmt.Fprintf(os.Stderr, "Found transaction on %s (chain %d)\n", metadata.Network, metadata.ChainID)
+			fmt.Fprintf(os.Stderr, "Safe: %s\n", metadata.SafeAddress)
+			fmt.Fprintf(os.Stderr, "Nonce: %d\n", metadata.Nonce)
+		}
+	} else {
+		// Old method: use network, safe, and nonce
+
+		// Validate required parameters
+		if network == "" || address == "" || nonce == 0 && !c.IsSet("nonce") {
+			return fmt.Errorf("either --tx or all of (--network, --safe, --nonce) must be provided")
+		}
+
+		// Validate network
+		if network != "ethereum" && network != "op" && network != "base" {
+			return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
+		}
+
+		// Strip the chain prefix if present
+		address = core.StripChainPrefix(address)
+
+		// Generate the transaction
+		tx, err = core.GenerateTransaction(network, address, nonce)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Set verification options
@@ -240,20 +281,50 @@ func onlineAction(c *cli.Context) error {
 }
 
 func downloadAction(c *cli.Context) error {
+	txInput := c.String("tx")
 	network := c.String("network")
 	address := c.String("safe")
 	nonce := c.Uint64("nonce")
 	outputFile := c.String("output")
 
-	// Validate network
-	if network != "ethereum" && network != "op" && network != "base" {
-		return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
-	}
+	var tx *core.SafeTransaction
+	var err error
 
-	// Generate the transaction JSON
-	tx, err := core.GenerateTransaction(network, address, nonce)
-	if err != nil {
-		return fmt.Errorf("error generating transaction: %w", err)
+	// Check if using new --tx flag or old --network/--safe/--nonce flags
+	if txInput != "" {
+		// New method: fetch by transaction hash or link
+
+		// Extract transaction hash from URL or use directly
+		txHash, err := core.ExtractTransactionHash(txInput)
+		if err != nil {
+			return fmt.Errorf("error parsing transaction input: %w", err)
+		}
+
+		// Fetch transaction data from API
+		metadata, err := core.FetchTransactionByHash(txHash)
+		if err != nil {
+			return fmt.Errorf("error fetching transaction: %w", err)
+		}
+
+		tx = metadata.Transaction
+	} else {
+		// Old method: use network, safe, and nonce
+
+		// Validate required parameters
+		if network == "" || address == "" || nonce == 0 && !c.IsSet("nonce") {
+			return fmt.Errorf("either --tx or all of (--network, --safe, --nonce) must be provided")
+		}
+
+		// Validate network
+		if network != "ethereum" && network != "op" && network != "base" {
+			return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
+		}
+
+		// Generate the transaction JSON
+		tx, err = core.GenerateTransaction(network, address, nonce)
+		if err != nil {
+			return fmt.Errorf("error generating transaction: %w", err)
+		}
 	}
 
 	// Output the transaction JSON

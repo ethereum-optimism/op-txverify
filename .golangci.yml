@@ -8,6 +8,9 @@ linters:
 
 run:
   deadline: 5m
+  skip-dirs-use-default: true
+  skip-dirs:
+    - "go/pkg/mod"
 
 linters-settings:
   revive:
@@ -23,9 +26,6 @@ linters-settings:
         disabled: false
 
 issues:
-  exclude-dirs:
-    - ".*go/pkg/mod/.*"
-    - ".*/usr/local/go/src/.*"
   exclude-files:
     - ".*\\.gen\\.go$"
     - ".*\\.pb\\.go$"
