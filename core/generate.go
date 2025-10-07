@@ -260,11 +260,25 @@ func ExtractTransactionHash(input string) (string, error) {
 
 		txHash := matches[1]
 
-		// The hash might be part of a longer string like multisig_0x...address_0x...hash
-		if strings.Contains(txHash, "multisig_") && strings.Contains(txHash, "_0x") {
+		// The hash might be part of a longer string like:
+		// - multisig_0x...address_0x...hash
+		// - transfer_0x...address_hash (without 0x prefix on hash)
+		if strings.Contains(txHash, "_0x") {
 			parts := strings.Split(txHash, "_")
 			// Return the last part after the last underscore (the actual hash)
-			return parts[len(parts)-1], nil
+			hash := parts[len(parts)-1]
+
+			// Add 0x prefix if missing
+			if !strings.HasPrefix(hash, "0x") {
+				hash = "0x" + hash
+			}
+
+			return hash, nil
+		}
+
+		// If no underscore pattern, check if it already has 0x prefix
+		if !strings.HasPrefix(txHash, "0x") {
+			txHash = "0x" + txHash
 		}
 
 		return txHash, nil
