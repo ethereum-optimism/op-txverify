@@ -424,7 +424,14 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 					continue
 				}
 
-				subcalls = append(subcalls, *subcall)
+				// If the multicall is via the delegatecall helper, mark subcalls as delegate
+				if normalizedAddress == strings.ToLower(Multicall3Delegatecall) {
+					sub := *subcall
+					sub.IsDelegateCall = true
+					subcalls = append(subcalls, sub)
+				} else {
+					subcalls = append(subcalls, *subcall)
+				}
 			}
 		} else if functionInfo.Signature == Aggregate3ValueSig {
 			// Define the struct type for the calls
@@ -499,7 +506,14 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 					continue
 				}
 
-				subcalls = append(subcalls, *subcall)
+				// If the multicall is via the delegatecall helper, mark subcalls as delegate
+				if normalizedAddress == strings.ToLower(Multicall3Delegatecall) {
+					sub := *subcall
+					sub.IsDelegateCall = true
+					subcalls = append(subcalls, sub)
+				} else {
+					subcalls = append(subcalls, *subcall)
+				}
 			}
 		} else {
 			return nil, fmt.Errorf("unsupported function %s for Multicall3 contract", functionInfo.Signature)

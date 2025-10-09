@@ -46,13 +46,14 @@ type SafeTransaction struct {
 
 // CallData represents a function call with parsed arguments
 type CallData struct {
-	Target       string      `json:"target"`
-	TargetName   string      `json:"targetName,omitempty"`
-	FunctionName string      `json:"functionName"`
-	FunctionData string      `json:"functionData,omitempty"`
-	RawData      string      `json:"rawData,omitempty"`
-	ParsedData   interface{} `json:"parsedData,omitempty"`
-	SubCalls     []CallData  `json:"subCalls,omitempty"`
+	Target         string      `json:"target"`
+	TargetName     string      `json:"targetName,omitempty"`
+	FunctionName   string      `json:"functionName"`
+	FunctionData   string      `json:"functionData,omitempty"`
+	RawData        string      `json:"rawData,omitempty"`
+	ParsedData     interface{} `json:"parsedData,omitempty"`
+	SubCalls       []CallData  `json:"subCalls,omitempty"`
+	IsDelegateCall bool        `json:"isDelegateCall,omitempty"`
 }
 
 // VerifyOptions contains configuration options for verification

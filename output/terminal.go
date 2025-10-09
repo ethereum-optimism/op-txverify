@@ -153,6 +153,12 @@ func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divid
 	}
 	fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 
+	// Print delegate call warning
+	if call.IsDelegateCall {
+		fmt.Fprintln(w, yellow("⚠️  WARNING: DELEGATECALL ⚠️"))
+		fmt.Fprintln(w, "")
+	}
+
 	// Print target and function name
 	targetDisplay := call.Target
 	if call.TargetName != "" {
