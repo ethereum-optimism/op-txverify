@@ -35,6 +35,9 @@ const (
 	OPGrants2                = "0x19793c7824Be70ec58BB673CA42D2779d12581BE"
 	ProxyAdminOwner          = "0x5a0Aae59D09fccBdDb6C6CcEB07B7279367C3d2A"
 	OptimismPortal           = "0xbEb5Fc579115071764c7423A4f12eDde41f106Ed"
+	OPCMv220                 = "0x1C7BFA38a25ad22caFC556A9BD827E1da7eC1791"
+	OPCMv300                 = "0x3A1f523a4bc09cd344A2745a108Bb0398288094F"
+	OPCMv410                 = "0x8123739C1368C2DEDc8C564255bc417FEEeBFF9D"
 )
 
 // Functions on ERC20 tokens that require decimal adjustment
@@ -84,6 +87,9 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(USDCMainnetAddress):     {Name: "USDC", Decimals: 6},
 		strings.ToLower(ProxyAdminOwner):        {Name: "SUPERCHAIN PROXY ADMIN OWNER", Decimals: 0},
 		strings.ToLower(OptimismPortal):         {Name: "OPTIMISM PORTAL", Decimals: 0},
+		strings.ToLower(OPCMv220):               {Name: "OPContractsManager V2.2.0", Decimals: 0},
+		strings.ToLower(OPCMv300):               {Name: "OPContractsManager V3.0.0", Decimals: 0},
+		strings.ToLower(OPCMv410):               {Name: "OPContractsManager V4.1.0", Decimals: 0},
 	},
 	OPMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -100,6 +106,9 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
 		strings.ToLower(Multicall3Address):      {Name: "MULTICALL3", Decimals: 0},
 		strings.ToLower(Multicall3Delegatecall): {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
+		strings.ToLower(OPCMv220):               {Name: "OPContractsManager V2.2.0", Decimals: 0},
+		strings.ToLower(OPCMv300):               {Name: "OPContractsManager V3.0.0", Decimals: 0},
+		strings.ToLower(OPCMv410):               {Name: "OPContractsManager V4.1.0", Decimals: 0},
 	},
 	OPSepoliaChainID: {
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -156,6 +165,7 @@ var KnownABIJSON = []string{
 	`[{"inputs":[{"name":"prevOwner","type":"address"},{"name":"owner","type":"address"},{"name":"threshold","type":"uint256"}],"name":"removeOwner","type":"function"}]`,
 	`[{"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"},{"name":"data","type":"bytes"},{"name":"operation","type":"uint8"},{"name":"safeTxGas","type":"uint256"},{"name":"baseGas","type":"uint256"},{"name":"gasPrice","type":"uint256"},{"name":"gasToken","type":"address"},{"name":"refundReceiver","type":"address"},{"name":"signatures","type":"bytes"}],"name":"execTransaction","type":"function"}]`,
 	`[{"inputs":[{"internalType":"address","name":"_to","type":"address"},{"internalType":"uint256","name":"_value","type":"uint256"},{"internalType":"uint64","name":"_gasLimit","type":"uint64"},{"internalType":"bool","name":"_isCreation","type":"bool"},{"internalType":"bytes","name":"_data","type":"bytes"}],"name":"depositTransaction","outputs":[],"stateMutability":"payable","type":"function"}]`,
+	`[{"inputs":[{"components":[{"name":"systemConfigProxy","type":"address"},{"name":"proxyAdmin","type":"address"},{"name":"absolutePrestate","type":"bytes32"}],"name":"_prestateUpdateInputs","type":"tuple[]"}],"name":"updatePrestate","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,
 }
 
 // Initialize known functions
