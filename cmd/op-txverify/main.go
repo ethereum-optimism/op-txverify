@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/ethereum-optimism/op-txverify/core"
@@ -174,28 +175,7 @@ func offlineAction(c *cli.Context) error {
 		return fmt.Errorf("failed to parse transaction: %w", err)
 	}
 
-	// Set verification options
-	options := core.VerifyOptions{
-		Verbose: verbose,
-	}
-
-	// Verify the transaction
-	result, err := core.VerifyTransaction(tx, options)
-	if err != nil {
-		return fmt.Errorf("error verifying transaction: %w", err)
-	}
-
-	// Output the result in the requested format
-	switch outputFormat {
-	case "json":
-		output.FormatJSON(result, os.Stdout)
-	case "terminal":
-		output.FormatTerminal(result, os.Stdout)
-	default:
-		return fmt.Errorf("unknown output format: %s", outputFormat)
-	}
-
-	return nil
+	return verifyTransactionAndFormat(tx, verbose, outputFormat, os.Stdout)
 }
 
 func onlineAction(c *cli.Context) error {
@@ -206,78 +186,18 @@ func onlineAction(c *cli.Context) error {
 	outputFormat := c.String("output")
 	verbose := c.Bool("verbose")
 
-	var tx *core.SafeTransaction
-	var err error
-
-	// Check if using new --tx flag or old --network/--safe/--nonce flags
-	if txInput != "" {
-		// New method: fetch by transaction hash or link
-
-		// Extract transaction hash from URL or use directly
-		txHash, err := core.ExtractTransactionHash(txInput)
-		if err != nil {
-			return fmt.Errorf("error parsing transaction input: %w", err)
-		}
-
-		// Fetch transaction data from API
-		metadata, err := core.FetchTransactionByHash(txHash)
-		if err != nil {
-			return fmt.Errorf("error fetching transaction: %w", err)
-		}
-
-		tx = metadata.Transaction
-
-		// Print metadata if verbose
-		if verbose {
-			fmt.Fprintf(os.Stderr, "Found transaction on %s (chain %d)\n", metadata.Network, metadata.ChainID)
-			fmt.Fprintf(os.Stderr, "Safe: %s\n", metadata.SafeAddress)
-			fmt.Fprintf(os.Stderr, "Nonce: %d\n", metadata.Nonce)
-		}
-	} else {
-		// Old method: use network, safe, and nonce
-
-		// Validate required parameters
-		if network == "" || address == "" || nonce == 0 && !c.IsSet("nonce") {
-			return fmt.Errorf("either --tx or all of (--network, --safe, --nonce) must be provided")
-		}
-
-		// Validate network
-		if network != "ethereum" && network != "op" && network != "base" {
-			return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
-		}
-
-		// Strip the chain prefix if present
-		address = core.StripChainPrefix(address)
-
-		// Generate the transaction
-		tx, err = core.GenerateTransaction(network, address, nonce)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Set verification options
-	options := core.VerifyOptions{
-		Verbose: verbose,
-	}
-
-	// Verify the generated transaction
-	result, err := core.VerifyTransaction(*tx, options)
+	tx, metadata, err := getTxFromFlags(txInput, network, address, nonce, c.IsSet("nonce"))
 	if err != nil {
-		return fmt.Errorf("error verifying transaction: %w", err)
+		return err
 	}
 
-	// Output the result in the requested format
-	switch outputFormat {
-	case "json":
-		output.FormatJSON(result, os.Stdout)
-	case "terminal":
-		output.FormatTerminal(result, os.Stdout)
-	default:
-		return fmt.Errorf("unknown output format: %s", outputFormat)
+	if verbose && metadata != nil {
+		fmt.Fprintf(os.Stderr, "Found transaction on %s (chain %d)\n", metadata.Network, metadata.ChainID)
+		fmt.Fprintf(os.Stderr, "Safe: %s\n", metadata.SafeAddress)
+		fmt.Fprintf(os.Stderr, "Nonce: %d\n", metadata.Nonce)
 	}
 
-	return nil
+	return verifyTransactionAndFormat(*tx, verbose, outputFormat, os.Stdout)
 }
 
 func downloadAction(c *cli.Context) error {
@@ -287,44 +207,9 @@ func downloadAction(c *cli.Context) error {
 	nonce := c.Uint64("nonce")
 	outputFile := c.String("output")
 
-	var tx *core.SafeTransaction
-	var err error
-
-	// Check if using new --tx flag or old --network/--safe/--nonce flags
-	if txInput != "" {
-		// New method: fetch by transaction hash or link
-
-		// Extract transaction hash from URL or use directly
-		txHash, err := core.ExtractTransactionHash(txInput)
-		if err != nil {
-			return fmt.Errorf("error parsing transaction input: %w", err)
-		}
-
-		// Fetch transaction data from API
-		metadata, err := core.FetchTransactionByHash(txHash)
-		if err != nil {
-			return fmt.Errorf("error fetching transaction: %w", err)
-		}
-
-		tx = metadata.Transaction
-	} else {
-		// Old method: use network, safe, and nonce
-
-		// Validate required parameters
-		if network == "" || address == "" || nonce == 0 && !c.IsSet("nonce") {
-			return fmt.Errorf("either --tx or all of (--network, --safe, --nonce) must be provided")
-		}
-
-		// Validate network
-		if network != "ethereum" && network != "op" && network != "base" {
-			return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
-		}
-
-		// Generate the transaction JSON
-		tx, err = core.GenerateTransaction(network, address, nonce)
-		if err != nil {
-			return fmt.Errorf("error generating transaction: %w", err)
-		}
+	tx, _, err := getTxFromFlags(txInput, network, address, nonce, c.IsSet("nonce"))
+	if err != nil {
+		return err
 	}
 
 	// Output the transaction JSON
@@ -358,26 +243,66 @@ func qrAction(c *cli.Context) error {
 		return fmt.Errorf("failed to parse transaction from QR code: %w", err)
 	}
 
-	// Set verification options
-	options := core.VerifyOptions{
-		Verbose: verbose,
+	return verifyTransactionAndFormat(tx, verbose, outputFormat, os.Stdout)
+}
+
+// getTxFromFlags resolves a SafeTransaction from either a tx hash/link or network/safe/nonce flags.
+func getTxFromFlags(txInput, network, address string, nonce uint64, nonceProvided bool) (*core.SafeTransaction, *core.TransactionMetadata, error) {
+	if txInput != "" {
+		// Extract transaction hash from URL or use directly
+		txHash, err := core.ExtractTransactionHash(txInput)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error parsing transaction input: %w", err)
+		}
+
+		// Fetch transaction data from API
+		metadata, err := core.FetchTransactionByHash(txHash)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error fetching transaction: %w", err)
+		}
+
+		return metadata.Transaction, metadata, nil
 	}
 
-	// Verify the transaction
+	// Validate required parameters
+	if network == "" || address == "" || (nonce == 0 && !nonceProvided) {
+		return nil, nil, fmt.Errorf("either --tx or all of (--network, --safe, --nonce) must be provided")
+	}
+
+	// Validate network (keep aligned with CLI help text)
+	if network != "ethereum" && network != "op" && network != "base" {
+		return nil, nil, fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
+	}
+
+	// Strip the chain prefix if present
+	address = core.StripChainPrefix(address)
+
+	// Generate the transaction
+	tx, err := core.GenerateTransaction(network, address, nonce)
+	if err != nil {
+		return nil, nil, err
+	}
+	return tx, nil, nil
+}
+
+// verifyTransactionAndFormat verifies a transaction and writes it using the requested formatter.
+func verifyTransactionAndFormat(tx core.SafeTransaction, verbose bool, outputFormat string, w io.Writer) error {
+	options := core.VerifyOptions{Verbose: verbose}
 	result, err := core.VerifyTransaction(tx, options)
 	if err != nil {
 		return fmt.Errorf("error verifying transaction: %w", err)
 	}
+	return writeVerificationOutput(result, outputFormat, w)
+}
 
-	// Output the result in the requested format
+// writeVerificationOutput writes a VerificationResult to the writer using the selected output format.
+func writeVerificationOutput(result *core.VerificationResult, outputFormat string, w io.Writer) error {
 	switch outputFormat {
 	case "json":
-		output.FormatJSON(result, os.Stdout)
+		return output.FormatJSON(result, w)
 	case "terminal":
-		output.FormatTerminal(result, os.Stdout)
+		return output.FormatTerminal(result, w)
 	default:
 		return fmt.Errorf("unknown output format: %s", outputFormat)
 	}
-
-	return nil
 }
