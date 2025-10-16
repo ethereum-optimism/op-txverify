@@ -35,9 +35,12 @@ const (
 	OPGrants2                = "0x19793c7824Be70ec58BB673CA42D2779d12581BE"
 	ProxyAdminOwner          = "0x5a0Aae59D09fccBdDb6C6CcEB07B7279367C3d2A"
 	OptimismPortal           = "0xbEb5Fc579115071764c7423A4f12eDde41f106Ed"
-	OPCMv220                 = "0x1C7BFA38a25ad22caFC556A9BD827E1da7eC1791"
-	OPCMv300                 = "0x3A1f523a4bc09cd344A2745a108Bb0398288094F"
-	OPCMv410                 = "0x8123739C1368C2DEDc8C564255bc417FEEeBFF9D"
+	OPCMv220Mainnet          = "0x1C7BFA38a25ad22caFC556A9BD827E1da7eC1791"
+	OPCMv300Mainnet          = "0x3A1f523a4bc09cd344A2745a108Bb0398288094F"
+	OPCMv410Mainnet          = "0x8123739C1368C2DEDc8C564255bc417FEEeBFF9D"
+	OPCMv220Sepolia          = "0x6b6f9129efb1b7a48f84e3b787333d1dca02ee34"
+	OPCMv300Sepolia          = "0xfBceeD4DE885645fBdED164910E10F52fEBFAB35"
+	OPCMv410Sepolia          = "0x3bb6437aba031afbf9cb3538fa064161e2bf2d78"
 )
 
 // Functions on ERC20 tokens that require decimal adjustment
@@ -87,9 +90,9 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(USDCMainnetAddress):     {Name: "USDC", Decimals: 6},
 		strings.ToLower(ProxyAdminOwner):        {Name: "SUPERCHAIN PROXY ADMIN OWNER", Decimals: 0},
 		strings.ToLower(OptimismPortal):         {Name: "OPTIMISM PORTAL", Decimals: 0},
-		strings.ToLower(OPCMv220):               {Name: "OPContractsManager V2.2.0", Decimals: 0},
-		strings.ToLower(OPCMv300):               {Name: "OPContractsManager V3.0.0", Decimals: 0},
-		strings.ToLower(OPCMv410):               {Name: "OPContractsManager V4.1.0", Decimals: 0},
+		strings.ToLower(OPCMv220Mainnet):        {Name: "OPContractsManager V2.2.0", Decimals: 0},
+		strings.ToLower(OPCMv300Mainnet):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
+		strings.ToLower(OPCMv410Mainnet):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
 	},
 	OPMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -106,9 +109,9 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
 		strings.ToLower(Multicall3Address):      {Name: "MULTICALL3", Decimals: 0},
 		strings.ToLower(Multicall3Delegatecall): {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
-		strings.ToLower(OPCMv220):               {Name: "OPContractsManager V2.2.0", Decimals: 0},
-		strings.ToLower(OPCMv300):               {Name: "OPContractsManager V3.0.0", Decimals: 0},
-		strings.ToLower(OPCMv410):               {Name: "OPContractsManager V4.1.0", Decimals: 0},
+		strings.ToLower(OPCMv220Sepolia):        {Name: "OPContractsManager V2.2.0", Decimals: 0},
+		strings.ToLower(OPCMv300Sepolia):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
+		strings.ToLower(OPCMv410Sepolia):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
 	},
 	OPSepoliaChainID: {
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
