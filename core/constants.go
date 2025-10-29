@@ -41,7 +41,6 @@ const (
 	OPCMv220Sepolia          = "0x6b6f9129efb1b7a48f84e3b787333d1dca02ee34"
 	OPCMv300Sepolia          = "0xfBceeD4DE885645fBdED164910E10F52fEBFAB35"
 	OPCMv410Sepolia          = "0x3bb6437aba031afbf9cb3538fa064161e2bf2d78"
-	LuckySafe                = "0x80afe6d72eba09e4e4ace80f3ab0571e7caab546"
 	CCTPv2                   = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
 	OPL1StandardBridge       = "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1"
 	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
@@ -101,7 +100,6 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv220Mainnet):        {Name: "OPContractsManager V2.2.0", Decimals: 0},
 		strings.ToLower(OPCMv300Mainnet):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
 		strings.ToLower(OPCMv410Mainnet):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
-		strings.ToLower(LuckySafe):              {Name: "LUCKY SAFE", Decimals: 0},
 		strings.ToLower(CCTPv2):                 {Name: "CCTP V2", Decimals: 0},
 		strings.ToLower(OPL1StandardBridge):     {Name: "OP L1StandardBridge", Decimals: 0},
 	},
