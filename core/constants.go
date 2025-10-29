@@ -44,6 +44,7 @@ const (
 	LuckySafe                = "0x80afe6d72eba09e4e4ace80f3ab0571e7caab546"
 	CCTPv2                   = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
 	OPL1StandardBridge       = "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1"
+	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
 )
 
 // Functions on ERC20 tokens that require decimal adjustment
@@ -114,6 +115,14 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OptimismGovernor):         {Name: "OPTIMISM GOVERNOR", Decimals: 0},
 		strings.ToLower(OPGrants1):                {Name: "OP GRANTS 1 (3F0)", Decimals: 0},
 		strings.ToLower(OPGrants2):                {Name: "OP GRANTS 2 (1BE)", Decimals: 0},
+		strings.ToLower(OPL2StandardBridge):       {Name: "OP L2StandardBridge", Decimals: 0},
+	},
+	BaseMainnetChainID: {
+		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(SafeMultisendCallOnly141): {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
+		strings.ToLower(Multicall3Delegatecall):   {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
+		strings.ToLower(OPL2StandardBridge):       {Name: "Base L2StandardBridge", Decimals: 0},
 	},
 	SepoliaChainID: {
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
