@@ -138,8 +138,8 @@ func CalculateMessageHash(tx SafeTransaction) (string, error) {
 	typehash := common.HexToHash(safeTxTypehashToUse)
 	toAddress := common.HexToAddress(tx.To)
 
-	// Convert value to big.Int
-	value := big.NewInt(int64(tx.Value))
+	// Use value directly (already *big.Int)
+	value := tx.Value
 
 	// Calculate data hash
 	dataBytes := common.FromHex(tx.Data)

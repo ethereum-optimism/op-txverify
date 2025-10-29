@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"math/big"
 	"strings"
 )
 
@@ -31,7 +32,7 @@ type SafeTransaction struct {
 	SafeVersion    string   `json:"safe_version"`
 	Chain          int      `json:"chain"`
 	To             string   `json:"to"`
-	Value          int      `json:"value"`
+	Value          *big.Int `json:"value"`
 	Data           string   `json:"data"`
 	Operation      int      `json:"operation"`
 	SafeTxGas      int      `json:"safe_tx_gas"`
@@ -78,7 +79,7 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 		tx.Safe = tx.Nested.Safe
 		tx.Nonce = tx.Nested.Nonce
 		tx.Operation = tx.Nested.Operation
-		tx.Value = 0
+		tx.Value = big.NewInt(0)
 		tx.Data = tx.Nested.Data
 	}
 

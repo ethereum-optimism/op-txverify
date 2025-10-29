@@ -61,7 +61,7 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	}
 
 	// Parse out the value being sent
-	value := core.ParseDecimals(big.NewInt(int64(tx.Value)), 18)
+	value := core.ParseDecimals(tx.Value, 18)
 
 	// Parse out network
 	network, isKnownNetwork := core.ChainNames[uint64(tx.Chain)]
