@@ -19,10 +19,11 @@ func TestGetNetworkInfo(t *testing.T) {
 		t.Fatalf("op: got (%q, %d), want (non-empty, %d)", url, chain, OPMainnetChainID)
 	}
 
-	if _, _, err := getNetworkInfo("base"); err == nil {
-		t.Fatalf("base: expected error, got nil")
+	url, chain, err = getNetworkInfo("base")
+	if err != nil {
+		t.Fatalf("base: unexpected error: %v", err)
 	}
-	if _, _, err := getNetworkInfo("unknown"); err == nil {
-		t.Fatalf("unknown: expected error, got nil")
+	if url == "" || chain != BaseMainnetChainID {
+		t.Fatalf("base: got (%q, %d), want (non-empty, %d)", url, chain, BaseMainnetChainID)
 	}
 }
