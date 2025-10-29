@@ -41,6 +41,9 @@ const (
 	OPCMv220Sepolia          = "0x6b6f9129efb1b7a48f84e3b787333d1dca02ee34"
 	OPCMv300Sepolia          = "0xfBceeD4DE885645fBdED164910E10F52fEBFAB35"
 	OPCMv410Sepolia          = "0x3bb6437aba031afbf9cb3538fa064161e2bf2d78"
+	CCTPv2                   = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
+	OPL1StandardBridge       = "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1"
+	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
 )
 
 // Functions on ERC20 tokens that require decimal adjustment
@@ -67,18 +70,22 @@ type FunctionInfo struct {
 
 // ChainID constants for supported networks
 const (
-	MainnetChainID   = 1
-	OPMainnetChainID = 10
-	SepoliaChainID   = 11155111
-	OPSepoliaChainID = 11155420
+	MainnetChainID     = 1
+	OPMainnetChainID   = 10
+	BaseMainnetChainID = 8453
+	SepoliaChainID     = 11155111
+	OPSepoliaChainID   = 11155420
+	BaseSepoliaChainID = 84532
 )
 
 // ChainNames maps chain IDs to their names
 var ChainNames = map[uint64]string{
-	MainnetChainID:   "Ethereum",
-	OPMainnetChainID: "OP Mainnet",
-	SepoliaChainID:   "Sepolia",
-	OPSepoliaChainID: "OP Sepolia",
+	MainnetChainID:     "Ethereum",
+	OPMainnetChainID:   "OP Mainnet",
+	SepoliaChainID:     "Sepolia",
+	OPSepoliaChainID:   "OP Sepolia",
+	BaseMainnetChainID: "Base Mainnet",
+	BaseSepoliaChainID: "Base Sepolia",
 }
 
 // KnownContracts maps chain IDs to a map of addresses to contract info
@@ -93,6 +100,8 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv220Mainnet):        {Name: "OPContractsManager V2.2.0", Decimals: 0},
 		strings.ToLower(OPCMv300Mainnet):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
 		strings.ToLower(OPCMv410Mainnet):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
+		strings.ToLower(CCTPv2):                 {Name: "CCTP V2", Decimals: 0},
+		strings.ToLower(OPL1StandardBridge):     {Name: "OP L1StandardBridge", Decimals: 0},
 	},
 	OPMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -104,6 +113,14 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OptimismGovernor):         {Name: "OPTIMISM GOVERNOR", Decimals: 0},
 		strings.ToLower(OPGrants1):                {Name: "OP GRANTS 1 (3F0)", Decimals: 0},
 		strings.ToLower(OPGrants2):                {Name: "OP GRANTS 2 (1BE)", Decimals: 0},
+		strings.ToLower(OPL2StandardBridge):       {Name: "OP L2StandardBridge", Decimals: 0},
+	},
+	BaseMainnetChainID: {
+		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(SafeMultisendCallOnly141): {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
+		strings.ToLower(Multicall3Delegatecall):   {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
+		strings.ToLower(OPL2StandardBridge):       {Name: "Base L2StandardBridge", Decimals: 0},
 	},
 	SepoliaChainID: {
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -169,6 +186,8 @@ var KnownABIJSON = []string{
 	`[{"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"},{"name":"data","type":"bytes"},{"name":"operation","type":"uint8"},{"name":"safeTxGas","type":"uint256"},{"name":"baseGas","type":"uint256"},{"name":"gasPrice","type":"uint256"},{"name":"gasToken","type":"address"},{"name":"refundReceiver","type":"address"},{"name":"signatures","type":"bytes"}],"name":"execTransaction","type":"function"}]`,
 	`[{"inputs":[{"internalType":"address","name":"_to","type":"address"},{"internalType":"uint256","name":"_value","type":"uint256"},{"internalType":"uint64","name":"_gasLimit","type":"uint64"},{"internalType":"bool","name":"_isCreation","type":"bool"},{"internalType":"bytes","name":"_data","type":"bytes"}],"name":"depositTransaction","outputs":[],"stateMutability":"payable","type":"function"}]`,
 	`[{"inputs":[{"components":[{"name":"systemConfigProxy","type":"address"},{"name":"proxyAdmin","type":"address"},{"name":"absolutePrestate","type":"bytes32"}],"name":"_prestateUpdateInputs","type":"tuple[]"}],"name":"updatePrestate","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,
+	`[{"inputs":[{"name":"amount","type":"uint256"},{"name":"destinationDomain","type":"uint32"},{"name":"mintRecipient","type":"bytes32"},{"name":"burnToken","type":"address"},{"name":"destinationCaller","type":"bytes32"},{"name":"maxFee","type":"uint256"},{"name":"minFinalityThreshold","type":"uint32"}],"name":"depositForBurn","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,
+	`[{"inputs":[{"internalType":"address","name":"_to","type":"address"},{"internalType":"uint32","name":"_minGasLimit","type":"uint32"},{"internalType":"bytes","name":"_extraData","type":"bytes"}],"name":"bridgeETHTo","outputs":[],"stateMutability":"payable","type":"function"}]`,
 }
 
 // Initialize known functions
