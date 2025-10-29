@@ -231,6 +231,9 @@ func getNetworkInfo(network string) (string, uint64, error) {
 	case "op", "optimism":
 		apiURL = "https://safe-transaction-optimism.safe.global"
 		chainID = OPMainnetChainID
+	case "base":
+		apiURL = "https://safe-transaction-base.safe.global"
+		chainID = BaseMainnetChainID
 	default:
 		return "", 0, fmt.Errorf("unsupported network: %s (must be ethereum, op, or base)", network)
 	}
