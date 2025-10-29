@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strings"
 
@@ -192,8 +193,14 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 	}
 
 	// Convert string values to appropriate types
-	var value, gasPrice int
-	fmt.Sscanf(content.Value, "%d", &value)
+	// Value can exceed 64-bit range; parse into big.Int
+	valueBig := new(big.Int)
+	if _, ok := valueBig.SetString(content.Value, 10); !ok {
+		return nil, fmt.Errorf("invalid value: %s", content.Value)
+	}
+
+	// GasPrice may be large but typically fits; keep as int for now
+	var gasPrice int
 	fmt.Sscanf(content.GasPrice, "%d", &gasPrice)
 
 	// Create SafeTransaction
@@ -202,7 +209,7 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		SafeVersion:    safeVersion,
 		Chain:          int(chainID),
 		To:             content.To,
-		Value:          value,
+		Value:          valueBig,
 		Data:           content.Data,
 		Operation:      content.Operation,
 		SafeTxGas:      content.SafeTxGas,
