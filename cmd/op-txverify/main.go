@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/ethereum-optimism/op-txverify/core"
@@ -129,6 +131,11 @@ func main() {
 						Aliases: []string{"d"},
 						Usage:   "Camera device to use (defaults to system default)",
 						Value:   "",
+					},
+					&cli.StringFlag{
+						Name:    "url",
+						Aliases: []string{"u"},
+						Usage:   "Link with base64-encoded tx param (skips scanner)",
 					},
 					&cli.StringFlag{
 						Name:    "output",
@@ -272,19 +279,38 @@ func downloadAction(c *cli.Context) error {
 
 func qrAction(c *cli.Context) error {
 	deviceID := c.String("device")
+	rawURL := c.String("url")
 	outputFormat := c.String("output")
 	verbose := c.Bool("verbose")
 
-	// Scan QR code from camera
-	data, err := core.ScanQRCode(deviceID)
-	if err != nil {
-		return fmt.Errorf("failed to scan QR code: %w", err)
-	}
-
-	// Parse the transaction
 	var tx core.SafeTransaction
-	if err := json.Unmarshal([]byte(data), &tx); err != nil {
-		return fmt.Errorf("failed to parse transaction from QR code: %w", err)
+
+	if rawURL != "" {
+		// Parse tx from provided URL: extract tx query param, base64-decode, then JSON-decode
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			return fmt.Errorf("invalid url: %w", err)
+		}
+		txParam := parsed.Query().Get("tx")
+		if txParam == "" {
+			return fmt.Errorf("tx parameter not found in url")
+		}
+		decoded, err := base64.StdEncoding.DecodeString(txParam)
+		if err != nil {
+			return fmt.Errorf("invalid base64 tx parameter: %w", err)
+		}
+		if err := json.Unmarshal(decoded, &tx); err != nil {
+			return fmt.Errorf("failed to parse transaction from url: %w", err)
+		}
+	} else {
+		// Scan QR code from camera
+		data, err := core.ScanQRCode(deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to scan QR code: %w", err)
+		}
+		if err := json.Unmarshal([]byte(data), &tx); err != nil {
+			return fmt.Errorf("failed to parse transaction from QR code: %w", err)
+		}
 	}
 
 	// Set verification options
