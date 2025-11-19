@@ -28,8 +28,23 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	warning := color.New(color.FgYellow, color.Bold).SprintFunc()
 	important := color.New(color.FgRed, color.Bold).SprintFunc()
 
-	// Print basic transaction details
+	// Print important header warning
 	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, important("╔══════════════════════════════════════════════════════════════════════════════╗"))
+	fmt.Fprintln(w, important("║                                                                              ║"))
+	fmt.Fprintln(w, important("║                       ⚠️  THIS OUTPUT IS IMPORTANT! ⚠️                       ║"))
+	fmt.Fprintln(w, important("║                                                                              ║"))
+	fmt.Fprintln(w, important("║    You need to verify this output by looking at exactly what's happening     ║"))
+	fmt.Fprintln(w, important("║    in this transaction and validate that it's interacting with the RIGHT     ║"))
+	fmt.Fprintln(w, important("║    ADDRESSES, with the RIGHT ETH VALUE, on the RIGHT CHAIN, and with the     ║"))
+	fmt.Fprintln(w, important("║    RIGHT DATA!                                                               ║"))
+	fmt.Fprintln(w, important("║                                                                              ║"))
+	fmt.Fprintln(w, important("╚══════════════════════════════════════════════════════════════════════════════╝"))
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "")
+
+	// Print basic transaction details
 	fmt.Fprintln(w, heading("TRANSACTION SUMMARY"))
 	fmt.Fprintln(w, divider("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 
