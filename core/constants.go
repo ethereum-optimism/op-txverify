@@ -38,9 +38,11 @@ const (
 	OPCMv220Mainnet          = "0x1C7BFA38a25ad22caFC556A9BD827E1da7eC1791"
 	OPCMv300Mainnet          = "0x3A1f523a4bc09cd344A2745a108Bb0398288094F"
 	OPCMv410Mainnet          = "0x8123739C1368C2DEDc8C564255bc417FEEeBFF9D"
+	OPCMv500Mainnet          = "0xFa1Ef97fb02B0dA2Ee2346b8e310907ab5519449"
 	OPCMv220Sepolia          = "0x6b6f9129efb1b7a48f84e3b787333d1dca02ee34"
 	OPCMv300Sepolia          = "0xfBceeD4DE885645fBdED164910E10F52fEBFAB35"
 	OPCMv410Sepolia          = "0x3bb6437aba031afbf9cb3538fa064161e2bf2d78"
+	OPCMv500Sepolia          = "0xC69e4c24Db479191676611a25D977203c3BDca62"
 	CCTPv2                   = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
 	OPL1StandardBridge       = "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1"
 	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
@@ -100,6 +102,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv220Mainnet):        {Name: "OPContractsManager V2.2.0", Decimals: 0},
 		strings.ToLower(OPCMv300Mainnet):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
 		strings.ToLower(OPCMv410Mainnet):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
+		strings.ToLower(OPCMv500Mainnet):        {Name: "OPContractsManager V5.0.0", Decimals: 0},
 		strings.ToLower(CCTPv2):                 {Name: "CCTP V2", Decimals: 0},
 		strings.ToLower(OPL1StandardBridge):     {Name: "OP L1StandardBridge", Decimals: 0},
 	},
@@ -129,6 +132,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv220Sepolia):        {Name: "OPContractsManager V2.2.0", Decimals: 0},
 		strings.ToLower(OPCMv300Sepolia):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
 		strings.ToLower(OPCMv410Sepolia):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
+		strings.ToLower(OPCMv500Sepolia):        {Name: "OPContractsManager V5.0.0", Decimals: 0},
 	},
 	OPSepoliaChainID: {
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -189,6 +193,7 @@ var KnownABIJSON = []string{
 	`[{"inputs":[{"components":[{"name":"systemConfigProxy","type":"address"},{"name":"proxyAdmin","type":"address"},{"name":"absolutePrestate","type":"bytes32"}],"name":"_prestateUpdateInputs","type":"tuple[]"}],"name":"updatePrestate","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,
 	`[{"inputs":[{"name":"amount","type":"uint256"},{"name":"destinationDomain","type":"uint32"},{"name":"mintRecipient","type":"bytes32"},{"name":"burnToken","type":"address"},{"name":"destinationCaller","type":"bytes32"},{"name":"maxFee","type":"uint256"},{"name":"minFinalityThreshold","type":"uint32"}],"name":"depositForBurn","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,
 	`[{"inputs":[{"internalType":"address","name":"_to","type":"address"},{"internalType":"uint32","name":"_minGasLimit","type":"uint32"},{"internalType":"bytes","name":"_extraData","type":"bytes"}],"name":"bridgeETHTo","outputs":[],"stateMutability":"payable","type":"function"}]`,
+	`[{"inputs":[{"name":"_superchainConfig","type":"address"},{"name":"_superchainProxyAdmin","type":"address"}],"name":"upgradeSuperchainConfig","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,
 }
 
 // Initialize known functions
