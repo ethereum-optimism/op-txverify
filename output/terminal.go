@@ -33,7 +33,7 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, important("╔══════════════════════════════════════════════════════════════════════════════╗"))
 	fmt.Fprintln(w, important("║                                                                              ║"))
-	fmt.Fprintln(w, important("║                       ⚠️  THIS OUTPUT IS IMPORTANT! ⚠️                       ║"))
+	fmt.Fprintln(w, important("║                       ⚠️  THIS OUTPUT IS IMPORTANT! ⚠️                         ║"))
 	fmt.Fprintln(w, important("║                                                                              ║"))
 	fmt.Fprintln(w, important("║    You need to verify this output by looking at exactly what's happening     ║"))
 	fmt.Fprintln(w, important("║    in this transaction and validate that it's interacting with the RIGHT     ║"))
