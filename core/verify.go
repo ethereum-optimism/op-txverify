@@ -81,6 +81,7 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 		tx.Operation = tx.Nested.Operation
 		tx.Value = big.NewInt(0)
 		tx.Data = tx.Nested.Data
+		tx.SafeVersion = tx.Nested.SafeVersion
 	}
 
 	// Verify the main transaction
