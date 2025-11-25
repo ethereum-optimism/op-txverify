@@ -342,6 +342,9 @@
             1: 'https://safe-transaction-mainnet.safe.global',
             10: 'https://safe-transaction-optimism.safe.global'
         };
+
+        const SAFE_FETCH_MAX_ATTEMPTS = 5;
+        const SAFE_FETCH_BASE_DELAY_MS = 1000;
         
         // Application state
         const state = {
@@ -407,23 +410,45 @@
             return input.trim();
         }
 
+        // Promise-based timeout helper for retry backoff
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
         // Fetch the Safe version for a given chain and address
         async function fetchSafeVersion(chainId, safeAddress) {
             const baseUrl = CHAIN_ID_TO_BASE_URL[chainId];
-            const url = `${baseUrl}/api/v1/safes/${safeAddress}/`;
-
-            try {
-                const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch safe version: ${response.status} ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                return data.version;
-            } catch (error) {
-                console.error("Error fetching safe version:", error);
-                return null;
+            if (!baseUrl) {
+                throw new Error(`Unsupported chain ${chainId} for Safe ${safeAddress}`);
             }
+            const url = `${baseUrl}/api/v1/safes/${safeAddress}/`;
+            let lastError = null;
+
+            for (let attempt = 1; attempt <= SAFE_FETCH_MAX_ATTEMPTS; attempt++) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch safe version: ${response.status} ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+                    if (!data.version) {
+                        throw new Error(`Safe version missing in response for ${safeAddress}`);
+                    }
+                    return data.version;
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`Safe version fetch attempt ${attempt} failed`, error);
+
+                    if (attempt < SAFE_FETCH_MAX_ATTEMPTS) {
+                        const backoff = SAFE_FETCH_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+                        const jitter = Math.random() * SAFE_FETCH_BASE_DELAY_MS;
+                        await delay(backoff + jitter);
+                    }
+                }
+            }
+
+            throw new Error(`Unable to fetch Safe version for ${safeAddress} on chain ${chainId} after ${SAFE_FETCH_MAX_ATTEMPTS} attempts: ${lastError?.message || 'Unknown error'}`);
         }
         
         // Updated to separate API checking from data processing
