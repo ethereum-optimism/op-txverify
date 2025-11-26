@@ -415,6 +415,45 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
+        // Generic fetch with exponential backoff retries
+        // Options:
+        //   maxAttempts: number of retry attempts (default: SAFE_FETCH_MAX_ATTEMPTS)
+        //   baseDelayMs: base delay for exponential backoff (default: SAFE_FETCH_BASE_DELAY_MS)
+        //   context: string for error messages
+        //   notFoundStatuses: array of status codes to treat as "not found" (returns null)
+        async function fetchWithRetries(url, options = {}) {
+            const maxAttempts = options.maxAttempts || SAFE_FETCH_MAX_ATTEMPTS;
+            const baseDelayMs = options.baseDelayMs || SAFE_FETCH_BASE_DELAY_MS;
+            const context = options.context || 'fetch';
+            const notFoundStatuses = options.notFoundStatuses || [];
+            let lastError = null;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        // Check if this is an expected "not found" status
+                        if (notFoundStatuses.includes(response.status)) {
+                            return null;
+                        }
+                        throw new Error(`${context}: ${response.status} ${response.statusText}`);
+                    }
+                    return await response.json();
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`${context} attempt ${attempt} failed`, error);
+
+                    if (attempt < maxAttempts) {
+                        const backoff = baseDelayMs * Math.pow(2, attempt - 1);
+                        const jitter = Math.random() * baseDelayMs;
+                        await delay(backoff + jitter);
+                    }
+                }
+            }
+
+            throw new Error(`${context} failed after ${maxAttempts} attempts: ${lastError?.message || 'Unknown error'}`);
+        }
+
         // Fetch the Safe version for a given chain and address
         async function fetchSafeVersion(chainId, safeAddress) {
             const baseUrl = CHAIN_ID_TO_BASE_URL[chainId];
@@ -422,33 +461,13 @@
                 throw new Error(`Unsupported chain ${chainId} for Safe ${safeAddress}`);
             }
             const url = `${baseUrl}/api/v1/safes/${safeAddress}/`;
-            let lastError = null;
-
-            for (let attempt = 1; attempt <= SAFE_FETCH_MAX_ATTEMPTS; attempt++) {
-                try {
-                    const response = await fetch(url);
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch safe version: ${response.status} ${response.statusText}`);
-                    }
-
-                    const data = await response.json();
-                    if (!data.version) {
-                        throw new Error(`Safe version missing in response for ${safeAddress}`);
-                    }
-                    return data.version;
-                } catch (error) {
-                    lastError = error;
-                    console.warn(`Safe version fetch attempt ${attempt} failed`, error);
-
-                    if (attempt < SAFE_FETCH_MAX_ATTEMPTS) {
-                        const backoff = SAFE_FETCH_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-                        const jitter = Math.random() * SAFE_FETCH_BASE_DELAY_MS;
-                        await delay(backoff + jitter);
-                    }
-                }
+            const data = await fetchWithRetries(url, {
+                context: `Safe version fetch for ${safeAddress}`
+            });
+            if (!data.version) {
+                throw new Error(`Safe version missing in response for ${safeAddress}`);
             }
-
-            throw new Error(`Unable to fetch Safe version for ${safeAddress} on chain ${chainId} after ${SAFE_FETCH_MAX_ATTEMPTS} attempts: ${lastError?.message || 'Unknown error'}`);
+            return data.version;
         }
         
         // Updated to separate API checking from data processing
@@ -469,22 +488,24 @@
             for (const chainId of chainIds) {
                 const baseUrl = CHAIN_ID_TO_BASE_URL[chainId];
                 const url = `${baseUrl}/api/v2/multisig-transactions/${txHash}/`;
-                
+
                 try {
-                    const response = await fetch(url);
-                    
-                    if (!response.ok) {
-                        // This API didn't find the transaction, try the next one
-                        errors.push(`Chain ${chainId}: ${response.status} ${response.statusText}`);
+                    const result = await fetchWithRetries(url, {
+                        context: `Transaction fetch on chain ${chainId}`,
+                        notFoundStatuses: [404, 422]  // Transaction not found on this chain
+                    });
+
+                    if (result === null) {
+                        // Transaction not found on this chain, try the next one
+                        errors.push(`Chain ${chainId}: Transaction not found`);
                         continue;
                     }
-                    
+
                     // Found a valid response, store it and break out of the loop
-                    foundContent = await response.json();
+                    foundContent = result;
                     foundChainId = chainId;
                     foundBaseUrl = baseUrl;
                     break;
-                    
                 } catch (error) {
                     errors.push(`Chain ${chainId}: ${error.message}`);
                     // Continue to try the next API
@@ -505,17 +526,13 @@
                 // Extract the hash from the data (skip first 10 chars for function signature)
                 const innerHash = '0x' + content.data.slice(10, 10 + 64);
                 console.log("Detected approveHash transaction, inner hash:", innerHash);
-                
-                // Fetch the inner transaction
+
+                // Fetch the inner transaction with retry logic
                 const innerUrl = `${foundBaseUrl}/api/v2/multisig-transactions/${innerHash}/`;
-                const innerResponse = await fetch(innerUrl);
-                
-                if (!innerResponse.ok) {
-                    throw new Error(`Failed to fetch inner transaction: ${innerResponse.status} ${innerResponse.statusText}`);
-                }
-                
-                const innerContent = await innerResponse.json();
-                
+                const innerContent = await fetchWithRetries(innerUrl, {
+                    context: `Inner transaction fetch for ${innerHash}`
+                });
+
                 // Set the nested data
                 nested = {
                     safe: content.safe,
