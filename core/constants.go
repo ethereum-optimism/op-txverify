@@ -46,6 +46,7 @@ const (
 	CCTPv2                   = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
 	OPL1StandardBridge       = "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1"
 	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
+	SaferSafes               = "0xA8447329e52F64AED2bFc9E7a2506F7D369f483a"
 )
 
 // Functions on ERC20 tokens that require decimal adjustment
@@ -105,6 +106,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv500Mainnet):        {Name: "OPContractsManager V5.0.0", Decimals: 0},
 		strings.ToLower(CCTPv2):                 {Name: "CCTP V2", Decimals: 0},
 		strings.ToLower(OPL1StandardBridge):     {Name: "OP L1StandardBridge", Decimals: 0},
+		strings.ToLower(SaferSafes):             {Name: "SaferSafes", Decimals: 0},
 	},
 	OPMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -117,6 +119,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPGrants1):                {Name: "OP GRANTS 1 (3F0)", Decimals: 0},
 		strings.ToLower(OPGrants2):                {Name: "OP GRANTS 2 (1BE)", Decimals: 0},
 		strings.ToLower(OPL2StandardBridge):       {Name: "OP L2StandardBridge", Decimals: 0},
+		strings.ToLower(SaferSafes):               {Name: "SaferSafes", Decimals: 0},
 	},
 	BaseMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
@@ -133,6 +136,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv300Sepolia):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
 		strings.ToLower(OPCMv410Sepolia):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
 		strings.ToLower(OPCMv500Sepolia):        {Name: "OPContractsManager V5.0.0", Decimals: 0},
+		strings.ToLower(SaferSafes):             {Name: "SaferSafes", Decimals: 0},
 	},
 	OPSepoliaChainID: {
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
