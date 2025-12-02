@@ -209,7 +209,7 @@ func onlineAction(c *cli.Context) error {
 	verbose := c.Bool("verbose")
 
 	// Validate network
-	if network != "ethereum" && network != "op" && network != "base" {
+	if network != "ethereum" && network != "op" && network != "base" && network != "sepolia" {
 		return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
 	}
 
