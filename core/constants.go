@@ -24,6 +24,7 @@ const (
 // Known contract addresses
 const (
 	SafeMultisendAddress     = "0xA1dabEF33b3B82c7814B6D82A79e50F4AC44102B"
+	SafeMultisendCallOnly130 = "0x40A2aCCbd92BCA938b02010E17A5b8929b49130D"
 	SafeMultisendCallOnly141 = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2"
 	Multicall3Address        = "0xcA11bde05977b3631167028862bE2a173976CA11"
 	Multicall3Delegatecall   = "0x93dc480940585D9961bfcEab58124fFD3d60f76a"
@@ -47,6 +48,9 @@ const (
 	OPL1StandardBridge       = "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1"
 	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
 	SaferSafes               = "0xA8447329e52F64AED2bFc9E7a2506F7D369f483a"
+	SafeMigration141         = "0x526643F69b81B008F46d95CD5ced5eC0edFFDaC6"
+	SafeMasterCopy141        = "0x41675c099f32341bf84bfc5382af534df5c7461a"
+	SafeFallbackHandler141   = "0xfd0732dc9e303f09fcef3a7388ad10a83459ec99"
 )
 
 // Functions on ERC20 tokens that require decimal adjustment
@@ -94,23 +98,28 @@ var ChainNames = map[uint64]string{
 // KnownContracts maps chain IDs to a map of addresses to contract info
 var KnownContracts = map[uint64]map[string]ContractInfo{
 	MainnetChainID: {
-		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
-		strings.ToLower(Multicall3Address):      {Name: "MULTICALL3", Decimals: 0},
-		strings.ToLower(Multicall3Delegatecall): {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
-		strings.ToLower(USDCMainnetAddress):     {Name: "USDC", Decimals: 6},
-		strings.ToLower(ProxyAdminOwner):        {Name: "SUPERCHAIN PROXY ADMIN OWNER", Decimals: 0},
-		strings.ToLower(OptimismPortal):         {Name: "OPTIMISM PORTAL", Decimals: 0},
-		strings.ToLower(OPCMv220Mainnet):        {Name: "OPContractsManager V2.2.0", Decimals: 0},
-		strings.ToLower(OPCMv300Mainnet):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
-		strings.ToLower(OPCMv410Mainnet):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
-		strings.ToLower(OPCMv500Mainnet):        {Name: "OPContractsManager V5.0.0", Decimals: 0},
-		strings.ToLower(CCTPv2):                 {Name: "CCTP V2", Decimals: 0},
-		strings.ToLower(OPL1StandardBridge):     {Name: "OP L1StandardBridge", Decimals: 0},
-		strings.ToLower(SaferSafes):             {Name: "SaferSafes", Decimals: 0},
+		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(SafeMultisendCallOnly130): {Name: "GNOSIS SAFE MULTISEND (v1.3.0)", Decimals: 0},
+		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
+		strings.ToLower(Multicall3Delegatecall):   {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
+		strings.ToLower(USDCMainnetAddress):       {Name: "USDC", Decimals: 6},
+		strings.ToLower(ProxyAdminOwner):          {Name: "SUPERCHAIN PROXY ADMIN OWNER", Decimals: 0},
+		strings.ToLower(OptimismPortal):           {Name: "OPTIMISM PORTAL", Decimals: 0},
+		strings.ToLower(OPCMv220Mainnet):          {Name: "OPContractsManager V2.2.0", Decimals: 0},
+		strings.ToLower(OPCMv300Mainnet):          {Name: "OPContractsManager V3.0.0", Decimals: 0},
+		strings.ToLower(OPCMv410Mainnet):          {Name: "OPContractsManager V4.1.0", Decimals: 0},
+		strings.ToLower(OPCMv500Mainnet):          {Name: "OPContractsManager V5.0.0", Decimals: 0},
+		strings.ToLower(CCTPv2):                   {Name: "CCTP V2", Decimals: 0},
+		strings.ToLower(OPL1StandardBridge):       {Name: "OP L1StandardBridge", Decimals: 0},
+		strings.ToLower(SaferSafes):               {Name: "SaferSafes", Decimals: 0},
+		strings.ToLower(SafeMigration141):         {Name: "Safe Migration Contract (v1.4.1)", Decimals: 0},
+		strings.ToLower(SafeMasterCopy141):        {Name: "Safe Master Copy (v1.4.1)", Decimals: 0},
+		strings.ToLower(SafeFallbackHandler141):   {Name: "Safe Fallback Handler (v1.4.1)", Decimals: 0},
 	},
 	OPMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
 		strings.ToLower(SafeMultisendCallOnly141): {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(SafeMultisendCallOnly130): {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
 		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
 		strings.ToLower(Multicall3Delegatecall):   {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
 		strings.ToLower(OPTokenAddress):           {Name: "OP TOKEN", Decimals: 18},
@@ -124,6 +133,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 	BaseMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
 		strings.ToLower(SafeMultisendCallOnly141): {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(SafeMultisendCallOnly130): {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
 		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
 		strings.ToLower(Multicall3Delegatecall):   {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
 		strings.ToLower(OPL2StandardBridge):       {Name: "Base L2StandardBridge", Decimals: 0},
@@ -148,9 +158,10 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 // MulticallAddresses maps chain IDs to a set of addresses known to be multicall contracts
 var MulticallAddresses = map[uint64]map[string]bool{
 	MainnetChainID: {
-		strings.ToLower(SafeMultisendAddress):   true,
-		strings.ToLower(Multicall3Address):      true,
-		strings.ToLower(Multicall3Delegatecall): true,
+		strings.ToLower(SafeMultisendAddress):     true,
+		strings.ToLower(SafeMultisendCallOnly130): true,
+		strings.ToLower(Multicall3Address):        true,
+		strings.ToLower(Multicall3Delegatecall):   true,
 	},
 	OPMainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     true,
@@ -199,9 +210,12 @@ var KnownABIJSON = []string{
 	`[{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint32","name":"minGasLimit","type":"uint32"},{"internalType":"bytes","name":"extraData","type":"bytes"}],"name":"bridgeETHTo","outputs":[],"stateMutability":"payable","type":"function"}]`,
 	`[{"inputs":[{"name":"superchainConfig","type":"address"},{"name":"superchainProxyAdmin","type":"address"}],"name":"upgradeSuperchainConfig","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,
 	`[{"inputs":[{"internalType": "bytes32","name": "safeTxHash","type": "bytes32"}],"name": "signCancellation","outputs": [],"stateMutability": "nonpayable","type": "function"}]`, // signCancellation
-	`[{"inputs":[{"internalType": "contract Safe","name": "safe","type": "address"}],"name": "challenge","outputs": [],"stateMutability": "nonpayable","type": "function"}]`, // challenge
-	`[{"inputs":[],"name": "respond","outputs": [],"stateMutability": "nonpayable","type": "function"}]`, // respond
+	`[{"inputs":[{"internalType": "contract Safe","name": "safe","type": "address"}],"name": "challenge","outputs": [],"stateMutability": "nonpayable","type": "function"}]`,        // challenge
+	`[{"inputs":[],"name": "respond","outputs": [],"stateMutability": "nonpayable","type": "function"}]`,                                                                                     // respond
 	`[{"inputs":[{"internalType": "contract Safe","name": "safe","type": "address"}],"name": "changeOwnershipToFallback","outputs": [],"stateMutability": "nonpayable","type": "function"}]`, // changeOwnershipToFallback
+	`[{"inputs":[{"name":"handler","type":"address"}],"name":"setFallbackHandler","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                           // setFallbackHandler
+	`[{"inputs":[{"name":"masterCopy","type":"address"}],"name":"changeMasterCopy","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                          // changeMasterCopy
+	`[{"inputs":[],"name":"migrateWithFallbackHandler","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                                                      // migrateWithFallbackHandler
 }
 
 // Initialize known functions
