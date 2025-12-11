@@ -297,7 +297,7 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 	normalizedAddress := strings.ToLower(contractAddress)
 
 	// Handle Safe Multisend contracts
-	if normalizedAddress == strings.ToLower(SafeMultisendAddress) || normalizedAddress == strings.ToLower(SafeMultisendCallOnly141) {
+	if normalizedAddress == strings.ToLower(SafeMultisendAddress) || normalizedAddress == strings.ToLower(SafeMultisendCallOnly141) || normalizedAddress == strings.ToLower(SafeMultisendCallOnly130) {
 		// For Safe Multisend contract, check the function signature
 		if functionInfo.Signature == SafeMultisendSig {
 			// Parse multiSend calldata
