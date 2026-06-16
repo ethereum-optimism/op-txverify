@@ -3,6 +3,11 @@
 Releases are cut locally with [GoReleaser](https://goreleaser.com). There is no
 release CI — whoever cuts the release runs it from their machine.
 
+> **OP Labs employees:** a detailed internal runbook is maintained in Notion
+> (access required):
+> [Managing Releases of op-txverify](https://www.notion.so/oplabs/Managing-Releases-of-op-txverify-380f153ee16280b69a79c8c769b8177b).
+> This file is the condensed, public version.
+
 ## Prerequisites
 
 Tools: `go`, `just`, `goreleaser`, `golangci-lint`, `gpg`.
