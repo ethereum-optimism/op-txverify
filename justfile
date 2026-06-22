@@ -22,13 +22,3 @@ build:
   mkdir -p dist
   go build -o dist/op-txverify ./cmd/op-txverify
   @echo "Build completed"
-
-# Run goreleaser in local mode (no publishing)
-release-dry-run:
-  goreleaser release --snapshot --clean
-  @echo "Dry run release completed"
-
-# Release the project using goreleaser
-release: clean test lint
-  goreleaser release
-  @echo "Release completed"
