@@ -34,62 +34,7 @@ checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
   algorithm: sha256
 
-release:
-  draft: true
-  replace_existing_draft: true
-  prerelease: auto
-  mode: append
-  header: |
-    ## {{ .ProjectName }} {{ .Version }}
-    
-    See [CHANGELOG.md](CHANGELOG.md) for a complete list of changes.
-    
-    ### Installation
-    
-    Download the appropriate binary for your platform and architecture from the releases below.
-
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
-      - '^ci:'
-      - Merge pull request
-      - Merge branch
-  groups:
-    - title: 'New Features'
-      regexp: "^.*feat[(\\w)]*:+.*$"
-      order: 0
-    - title: 'Bug fixes'
-      regexp: "^.*fix[(\\w)]*:+.*$"
-      order: 1
-    - title: Other
-      order: 999
-
 source:
   enabled: true
   name_template: '{{ .ProjectName }}_{{ .Version }}_source'
   format: 'zip'
-
-signs:
-  - artifacts: checksum
-    args:
-      - "--batch"
-      - "--local-user"
-      - "{{ .Env.GPG_FINGERPRINT }}!"
-      - "--output"
-      - "${signature}"
-      - "--detach-sign"
-      - "${artifact}"
-
-notarize:
-  macos:
-    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
-      sign:
-        certificate: "{{.Env.MACOS_SIGN_P12}}"
-        password: "{{.Env.MACOS_SIGN_PASSWORD}}"
-      notarize:
-        issuer_id: "{{.Env.MACOS_NOTARY_ISSUER_ID}}"
-        key_id: "{{.Env.MACOS_NOTARY_KEY_ID}}"
-        key: "{{.Env.MACOS_NOTARY_KEY}}"

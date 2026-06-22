@@ -6,9 +6,9 @@ op-txverify is a command-line utility for verifying [Safe](https://app.safe.glob
 2. Identifying common addresses and contracts that users interact with
 3. Simplifying access by allowing users to input transactions via QR codes
 
-## QR Code Scanning
+## QR code scanning
 
-The QR scanning functionality provided by `op-txverify` allows you to verify Safe transactions by scanning QR codes displayed on a web interface. This is especially useful for air-gapped verification where transmitting data to the verification device over bluetooth or USB is not desireable.
+The QR scanning functionality provided by `op-txverify` allows you to verify Safe transactions by scanning QR codes displayed on a web interface. This is especially useful for air-gapped verification where transmitting data to the verification device over bluetooth or USB is not desirable.
 
 To use the QR code scanner:
 
@@ -24,34 +24,55 @@ To use the QR code scanner:
 
 ## Installation
 
-### Option 1: Download from Releases
+### Download the latest release
 
-1. Go to the [Releases](https://github.com/ethereum-optimism/op-txverify/releases) page
-2. Download the appropriate binary for your operating system and architecture
-3. Make the binary executable: `chmod +x op-txverify_[version]_[os]_[arch]`
-4. Rename and move the binary to a location in your PATH:
-    ```bash
-    mv op-txverify_[version]_[os]_[arch] /usr/local/bin/op-txverify
-    ```
+Use the GitHub CLI to download the latest release. Pick the pattern that
+matches your machine:
 
-#### Optional: Verify Checksum
+```bash
+mkdir -p /tmp/op-txverify-download
+cd /tmp/op-txverify-download
 
-To verify the integrity of your downloaded binary:
+gh release download \
+  --repo ethereum-optimism/op-txverify \
+  --pattern 'op-txverify_*_darwin_arm64' \
+  --pattern 'op-txverify_*_SHA256SUMS'
 
-1. Download the `op-txverify_[version]_SHA256SUMS` file from the releases page
-1. Run the verification command and compare with the corresponding entry in the SHA256SUMS file:
-    ```bash
-    sha256sum op-txverify_[version]_[os]_[arch]
-    ```
-1. Compare the two checksums to ensure they match
+shasum -a 256 --check --ignore-missing op-txverify_*_SHA256SUMS
 
-### Option 2: Build from Source
+chmod +x op-txverify_*_darwin_arm64
+sudo mv op-txverify_*_darwin_arm64 /usr/local/bin/op-txverify
+```
+
+Other common asset patterns:
+
+- Apple silicon macOS: `op-txverify_*_darwin_arm64`
+- Intel macOS: `op-txverify_*_darwin_amd64`
+- Linux amd64: `op-txverify_*_linux_amd64`
+- Linux arm64: `op-txverify_*_linux_arm64`
+
+The release binaries are not signed or notarized by Apple. Apple documents that
+macOS checks downloaded software from outside the App Store, including whether
+it is signed by an identified developer and notarized. Browser downloads are
+more likely to carry quarantine metadata that triggers the Privacy & Security
+override flow for unsigned software. Prefer `gh release download`, verify the
+checksum, and install the binary from Terminal.
+
+If macOS still blocks the binary and you have verified the checksum, remove the
+quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/op-txverify
+```
+
+### Build from source
+
+If there is no usable release yet, build from source with Go:
 
 Prerequisites:
 
 - Go 1.23 or later
 - Git
-- [GoReleaser](https://goreleaser.com/install/)
 
 Steps:
 
@@ -60,30 +81,19 @@ Steps:
     git clone https://github.com/ethereum-optimism/op-txverify.git
     cd op-txverify
     ```
-1. Build using GoReleaser:
+1. Build the binary:
     ```bash
-    goreleaser build --snapshot --clean
+    go build -trimpath -o ./bin/op-txverify ./cmd/op-txverify
     ```
-1. The binaries will be available in the `dist` directory with names like:
+1. Install it somewhere on your `PATH`:
     ```bash
-    dist/op-txverify_[version]_[os]_[arch]/op-txverify
-    ```
-1. Install the binary for your platform:
-    ```bash
-    chmod +x dist/op-txverify_[version]_[os]_[arch]/op-txverify
-    mv dist/op-txverify_[version]_[os]_[arch]/op-txverify /usr/local/bin/
+    sudo mv ./bin/op-txverify /usr/local/bin/op-txverify
     ```
 
-#### Compare Checksums (Optional)
+You can also install directly from GitHub:
 
-To verify a downloaded binary against your local build:
+```bash
+go install github.com/ethereum-optimism/op-txverify/cmd/op-txverify@main
+```
 
-1. Check the SHA256SUMS file generated in the `dist` directory:
-    ```bash
-    cat dist/op-txverify_[version]_SHA256SUMS
-    ```
-1. Calculate the checksum of your downloaded binary:
-    ```bash
-    sha256sum /path/to/downloaded/op-txverify_[version]_[os]_[arch]
-    ```
-1. Compare the two checksums to ensure they match
+Maintainer release instructions live in [RELEASING.md](RELEASING.md).
