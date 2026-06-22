@@ -24,57 +24,28 @@ To use the QR code scanner:
 
 ## Installation
 
-### Download the latest release
-
-Use the GitHub CLI to download the latest release. Pick the pattern that
-matches your machine:
-
-```bash
-mkdir -p /tmp/op-txverify-download
-cd /tmp/op-txverify-download
-
-gh release download \
-  --repo ethereum-optimism/op-txverify \
-  --pattern 'op-txverify_*_darwin_arm64' \
-  --pattern 'op-txverify_*_SHA256SUMS'
-
-shasum -a 256 --check --ignore-missing op-txverify_*_SHA256SUMS
-
-chmod +x op-txverify_*_darwin_arm64
-sudo mv op-txverify_*_darwin_arm64 /usr/local/bin/op-txverify
-```
-
-Other common asset patterns:
-
-- Apple silicon macOS: `op-txverify_*_darwin_arm64`
-- Intel macOS: `op-txverify_*_darwin_amd64`
-- Linux amd64: `op-txverify_*_linux_amd64`
-- Linux arm64: `op-txverify_*_linux_arm64`
-
-The release binaries are not signed or notarized by Apple. Apple documents that
-macOS checks downloaded software from outside the App Store, including whether
-it is signed by an identified developer and notarized. Browser downloads are
-more likely to carry quarantine metadata that triggers the Privacy & Security
-override flow for unsigned software. Prefer `gh release download`, verify the
-checksum, and install the binary from Terminal.
-
-If macOS still blocks the binary and you have verified the checksum, remove the
-quarantine attribute:
-
-```bash
-xattr -d com.apple.quarantine /usr/local/bin/op-txverify
-```
-
-### Build from source
-
-If there is no usable release yet, build from source with Go:
+`op-txverify` is not distributed as a release binary. Build the latest version
+from source before each signing ceremony.
 
 Prerequisites:
 
 - Go 1.23 or later
 - Git
 
-Steps:
+Install the latest `main` directly:
+
+```bash
+go install github.com/ethereum-optimism/op-txverify/cmd/op-txverify@main
+```
+
+Make sure your Go binary directory is on your `PATH`. For most local Go
+installations, this is:
+
+```bash
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Or clone and build explicitly:
 
 1. Clone the repository:
     ```bash
@@ -90,10 +61,8 @@ Steps:
     sudo mv ./bin/op-txverify /usr/local/bin/op-txverify
     ```
 
-You can also install directly from GitHub:
+Confirm the installed binary:
 
 ```bash
-go install github.com/ethereum-optimism/op-txverify/cmd/op-txverify@main
+op-txverify --version
 ```
-
-Maintainer release instructions live in [RELEASING.md](RELEASING.md).
