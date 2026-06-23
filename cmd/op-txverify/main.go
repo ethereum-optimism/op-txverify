@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 
 	"github.com/ethereum-optimism/op-txverify/core"
@@ -135,7 +133,7 @@ func main() {
 					&cli.StringFlag{
 						Name:    "url",
 						Aliases: []string{"u"},
-						Usage:   "Link with base64-encoded tx param (skips scanner)",
+						Usage:   "Link with tx or compressed txz param (skips scanner)",
 					},
 					&cli.StringFlag{
 						Name:    "output",
@@ -286,22 +284,11 @@ func qrAction(c *cli.Context) error {
 	var tx core.SafeTransaction
 
 	if rawURL != "" {
-		// Parse tx from provided URL: extract tx query param, base64-decode, then JSON-decode
-		parsed, err := url.Parse(rawURL)
+		decodedTx, err := core.DecodeTransactionURL(rawURL)
 		if err != nil {
-			return fmt.Errorf("invalid url: %w", err)
+			return err
 		}
-		txParam := parsed.Query().Get("tx")
-		if txParam == "" {
-			return fmt.Errorf("tx parameter not found in url")
-		}
-		decoded, err := base64.StdEncoding.DecodeString(txParam)
-		if err != nil {
-			return fmt.Errorf("invalid base64 tx parameter: %w", err)
-		}
-		if err := json.Unmarshal(decoded, &tx); err != nil {
-			return fmt.Errorf("failed to parse transaction from url: %w", err)
-		}
+		tx = *decodedTx
 	} else {
 		// Scan QR code from camera
 		data, err := core.ScanQRCode(deviceID)
