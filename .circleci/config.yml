@@ -4,6 +4,7 @@ executors:
   go-executor:
     docker:
       - image: cimg/go:1.23
+    resource_class: medium+
     environment:
       GOFLAGS: -mod=readonly
 
@@ -82,5 +83,4 @@ workflows:
       - test:
           requires:
             - lint
-
 
