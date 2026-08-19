@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -43,6 +44,55 @@ type SafeTransaction struct {
 	Nonce          int      `json:"nonce"`
 	Nested         *Nested  `json:"nested,omitempty"`
 	Call           CallData `json:"call"`
+}
+
+// UnmarshalJSON accepts `value` as a JSON number or a decimal string. The Safe Transaction Service
+// returns a string, and passing it through unquoted is the only way to keep precision above 2^53-1
+// wei, but `*big.Int` alone rejects the quoted form. Both are accepted so payloads written before
+// this change still parse.
+func (t *SafeTransaction) UnmarshalJSON(data []byte) error {
+	type alias SafeTransaction // sheds the method set, so this does not recurse
+	aux := struct {
+		Value json.RawMessage `json:"value"`
+		*alias
+	}{alias: (*alias)(t)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	raw := string(aux.Value)
+	if raw == "" || raw == "null" {
+		// Zero rather than nil: a nil Value panics when the struct hash is ABI-packed.
+		t.Value = big.NewInt(0)
+		return nil
+	}
+	if raw[0] == '"' {
+		if err := json.Unmarshal(aux.Value, &raw); err != nil {
+			return fmt.Errorf("invalid value: %w", err)
+		}
+	}
+
+	value, err := ParseWei(raw)
+	if err != nil {
+		return err
+	}
+	t.Value = value
+	return nil
+}
+
+// ParseWei parses a base-10 wei amount, rejecting anything outside the uint256 range. The range
+// check matters because abi.Arguments.Pack reduces modulo 2^256 rather than erroring, so a negative
+// or oversized value would print one number in the decode and hash a different one.
+func ParseWei(raw string) (*big.Int, error) {
+	value, ok := new(big.Int).SetString(raw, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid value %q: not a base-10 integer", raw)
+	}
+	if value.Sign() < 0 || value.BitLen() > 256 {
+		return nil, fmt.Errorf("invalid value %q: outside the uint256 range", raw)
+	}
+	return value, nil
 }
 
 // CallData represents a function call with parsed arguments
