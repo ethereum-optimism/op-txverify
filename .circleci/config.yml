@@ -75,6 +75,30 @@ jobs:
       - store_artifacts:
           path: coverage.out
 
+  build-site:
+    executor: go-executor
+    steps:
+      - checkout
+      - run:
+          name: Build site
+          command: ./scripts/build-site.sh
+      - run:
+          name: Assert published allowlist
+          command: |
+            for f in site/index.html site/app.css site/app.js; do
+              if [ ! -f "$f" ]; then
+                echo "missing expected file: $f"
+                exit 1
+              fi
+            done
+            for p in site/reader.html site/lib/qrscanner; do
+              if [ -e "$p" ]; then
+                echo "must not be published: $p"
+                exit 1
+              fi
+            done
+            find site -type f | sort
+
 workflows:
   ci:
     jobs:
@@ -82,3 +106,4 @@ workflows:
       - test:
           requires:
             - lint
+      - build-site

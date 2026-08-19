@@ -1,0 +1,24 @@
+# Netlify config for op-txverify.optimism.io. Overrides the UI settings; paths
+# are relative to `base`, which is unset, so the repo root.
+[build]
+  # base must be set explicitly: the Netlify UI had it pointing at core/web (which is how the site
+  # was published before there was a build step), and command and publish both resolve relative to
+  # it, so inheriting it would look for core/web/scripts/build-site.sh.
+  base = "."
+  publish = "site"
+  command = "./scripts/build-site.sh"
+
+[[headers]]
+  for = "/*"
+
+  [headers.values]
+    # form-action and frame-src do not inherit from default-src, so both are listed explicitly.
+    # No CSP directive can block <meta http-equiv="refresh"> navigation - navigate-to was dropped
+    # from CSP3 in 2022 and never shipped - so that risk is handled in review, not here.
+    Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.safe.global; form-action 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    # Without HSTS a single plaintext navigation lets an on-path attacker serve a substituted
+    # app.js with no CSP at all, which defeats the header above.
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
