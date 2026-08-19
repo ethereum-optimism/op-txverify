@@ -433,9 +433,9 @@ func formatSimpleValue(value interface{}) interface{} {
 		return "0x" + hex.EncodeToString(v)
 	case common.Address:
 		return v.Hex()
-	case fmt.Stringer:
-		return v.String()
 	case *big.Int:
+		return v.String()
+	case fmt.Stringer:
 		return v.String()
 	default:
 		return v

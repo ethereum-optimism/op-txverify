@@ -189,9 +189,9 @@ func offlineAction(c *cli.Context) error {
 	// Output the result in the requested format
 	switch outputFormat {
 	case "json":
-		output.FormatJSON(result, os.Stdout)
+		_ = output.FormatJSON(result, os.Stdout)
 	case "terminal":
-		output.FormatTerminal(result, os.Stdout)
+		_ = output.FormatTerminal(result, os.Stdout)
 	default:
 		return fmt.Errorf("unknown output format: %s", outputFormat)
 	}
@@ -234,9 +234,9 @@ func onlineAction(c *cli.Context) error {
 	// Output the result in the requested format
 	switch outputFormat {
 	case "json":
-		output.FormatJSON(result, os.Stdout)
+		_ = output.FormatJSON(result, os.Stdout)
 	case "terminal":
-		output.FormatTerminal(result, os.Stdout)
+		_ = output.FormatTerminal(result, os.Stdout)
 	default:
 		return fmt.Errorf("unknown output format: %s", outputFormat)
 	}
@@ -314,9 +314,9 @@ func qrAction(c *cli.Context) error {
 	// Output the result in the requested format
 	switch outputFormat {
 	case "json":
-		output.FormatJSON(result, os.Stdout)
+		_ = output.FormatJSON(result, os.Stdout)
 	case "terminal":
-		output.FormatTerminal(result, os.Stdout)
+		_ = output.FormatTerminal(result, os.Stdout)
 	default:
 		return fmt.Errorf("unknown output format: %s", outputFormat)
 	}

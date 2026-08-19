@@ -274,7 +274,7 @@ func parseArguments(method abi.Method, calldata string) (map[string]interface{},
 					// Split by space (Go's array string representation uses spaces)
 					for _, numStr := range strings.Fields(str) {
 						var val uint8
-						fmt.Sscanf(numStr, "%d", &val)
+						_, _ = fmt.Sscanf(numStr, "%d", &val)
 						bytes = append(bytes, val)
 					}
 

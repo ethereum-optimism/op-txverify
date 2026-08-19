@@ -156,8 +156,8 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 
 				// Convert string values to integers for inner transaction
 				var innerSafeTxGas, innerBaseGas int
-				fmt.Sscanf(innerTx.SafeTxGas, "%d", &innerSafeTxGas)
-				fmt.Sscanf(innerTx.BaseGas, "%d", &innerBaseGas)
+				_, _ = fmt.Sscanf(innerTx.SafeTxGas, "%d", &innerSafeTxGas)
+				_, _ = fmt.Sscanf(innerTx.BaseGas, "%d", &innerBaseGas)
 
 				// Create nested data from outer transaction (using OUTER safe's info)
 				nested = &Nested{
@@ -201,7 +201,7 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 
 	// GasPrice may be large but typically fits; keep as int for now
 	var gasPrice int
-	fmt.Sscanf(content.GasPrice, "%d", &gasPrice)
+	_, _ = fmt.Sscanf(content.GasPrice, "%d", &gasPrice)
 
 	// Create SafeTransaction
 	safeTx := &SafeTransaction{
