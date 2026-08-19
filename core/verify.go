@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // VerificationResult represents the complete output of the verification process
@@ -117,6 +119,10 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 	// Check if this is a nested transaction
 	var nestedResult *VerificationResult
 	if tx.Nested != nil {
+		if err := checkNestedGasFields(tx); err != nil {
+			return nil, err
+		}
+
 		// Verify the inner transaction first
 		var err error
 		nestedResult, err = verifyTransactionInternal(tx, options)
@@ -144,6 +150,27 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 	result.NestedResult = nestedResult
 
 	return result, nil
+}
+
+// checkNestedGasFields rejects a nested transaction whose gas fields are non-zero. Nested carries
+// no gas fields of its own, so the outer hash is computed from the inner transaction's — Go and the
+// Safe contract would then agree with each other and both disagree with the hardware wallet, the one
+// mismatch nothing downstream can catch. Every superchain-ops nested task uses zeros, so this exists
+// to make that assumption loud rather than silent.
+func checkNestedGasFields(tx SafeTransaction) error {
+	switch {
+	case tx.SafeTxGas != 0:
+		return fmt.Errorf("nested transaction requires safe_tx_gas to be 0, got %d", tx.SafeTxGas)
+	case tx.BaseGas != 0:
+		return fmt.Errorf("nested transaction requires base_gas to be 0, got %d", tx.BaseGas)
+	case tx.GasPrice != 0:
+		return fmt.Errorf("nested transaction requires gas_price to be 0, got %d", tx.GasPrice)
+	case common.HexToAddress(tx.GasToken) != (common.Address{}):
+		return fmt.Errorf("nested transaction requires gas_token to be the zero address, got %s", tx.GasToken)
+	case common.HexToAddress(tx.RefundReceiver) != (common.Address{}):
+		return fmt.Errorf("nested transaction requires refund_receiver to be the zero address, got %s", tx.RefundReceiver)
+	}
+	return nil
 }
 
 // verifyTransactionInternal contains the core verification logic
