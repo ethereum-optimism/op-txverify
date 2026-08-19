@@ -37,9 +37,7 @@ func ScanQRCode(deviceID string) (string, error) {
 	fmt.Println("Press Ctrl+C to cancel")
 
 	// Open the browser
-	if err := openBrowser("http://localhost:8081"); err != nil {
-		return "", fmt.Errorf("error opening browser: %w", err)
-	}
+	_ = openBrowser("http://localhost:8081")
 
 	// Wait for result or timeout
 	select {
@@ -91,9 +89,7 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 
 	// Handle the root path
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if err := tmpl.Execute(w, nil); err != nil {
-			http.Error(w, "Error rendering scanner", http.StatusInternalServerError)
-		}
+		_ = tmpl.Execute(w, nil)
 	})
 
 	// Handle the result endpoint
@@ -104,10 +100,7 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 		}
 
 		// Get the QR code data
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "Invalid form data", http.StatusBadRequest)
-			return
-		}
+		_ = r.ParseForm()
 		qrText := r.FormValue("data")
 
 		// Check if it's a multi-part QR code

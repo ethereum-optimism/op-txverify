@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -274,11 +273,9 @@ func parseArguments(method abi.Method, calldata string) (map[string]interface{},
 
 					// Split by space (Go's array string representation uses spaces)
 					for _, numStr := range strings.Fields(str) {
-						val, err := strconv.ParseUint(numStr, 10, 8)
-						if err != nil {
-							return nil, fmt.Errorf("invalid byte array value %q: %w", numStr, err)
-						}
-						bytes = append(bytes, byte(val))
+						var val uint8
+						_, _ = fmt.Sscanf(numStr, "%d", &val)
+						bytes = append(bytes, val)
 					}
 
 					result[name] = "0x" + hex.EncodeToString(bytes)

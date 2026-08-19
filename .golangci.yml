@@ -25,6 +25,9 @@ linters:
       - linters:
           - golint
         path: _test\.go
+      - linters:
+          - staticcheck
+        text: "QF1003:"
     paths:
       - .*\.gen\.go$
       - .*\.pb\.go$

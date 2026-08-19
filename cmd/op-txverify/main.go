@@ -186,7 +186,17 @@ func offlineAction(c *cli.Context) error {
 		return fmt.Errorf("error verifying transaction: %w", err)
 	}
 
-	return formatResult(result, outputFormat)
+	// Output the result in the requested format
+	switch outputFormat {
+	case "json":
+		_ = output.FormatJSON(result, os.Stdout)
+	case "terminal":
+		_ = output.FormatTerminal(result, os.Stdout)
+	default:
+		return fmt.Errorf("unknown output format: %s", outputFormat)
+	}
+
+	return nil
 }
 
 func onlineAction(c *cli.Context) error {
@@ -221,7 +231,17 @@ func onlineAction(c *cli.Context) error {
 		return fmt.Errorf("error verifying transaction: %w", err)
 	}
 
-	return formatResult(result, outputFormat)
+	// Output the result in the requested format
+	switch outputFormat {
+	case "json":
+		_ = output.FormatJSON(result, os.Stdout)
+	case "terminal":
+		_ = output.FormatTerminal(result, os.Stdout)
+	default:
+		return fmt.Errorf("unknown output format: %s", outputFormat)
+	}
+
+	return nil
 }
 
 func downloadAction(c *cli.Context) error {
@@ -247,14 +267,8 @@ func downloadAction(c *cli.Context) error {
 		if err != nil {
 			return fmt.Errorf("error creating output file: %w", err)
 		}
-		if err := output.FormatJSON(tx, file); err != nil {
-			_ = file.Close()
-			return err
-		}
-		if err := file.Close(); err != nil {
-			return fmt.Errorf("error closing output file: %w", err)
-		}
-		return nil
+		defer file.Close()
+		return output.FormatJSON(tx, file)
 	}
 
 	// Output to stdout if no file specified
@@ -297,16 +311,15 @@ func qrAction(c *cli.Context) error {
 		return fmt.Errorf("error verifying transaction: %w", err)
 	}
 
-	return formatResult(result, outputFormat)
-}
-
-func formatResult(result *core.VerificationResult, outputFormat string) error {
+	// Output the result in the requested format
 	switch outputFormat {
 	case "json":
-		return output.FormatJSON(result, os.Stdout)
+		_ = output.FormatJSON(result, os.Stdout)
 	case "terminal":
-		return output.FormatTerminal(result, os.Stdout)
+		_ = output.FormatTerminal(result, os.Stdout)
 	default:
 		return fmt.Errorf("unknown output format: %s", outputFormat)
 	}
+
+	return nil
 }

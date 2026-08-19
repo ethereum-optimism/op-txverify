@@ -67,12 +67,11 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 
 	// Parse out the operation being performed
 	var operation string
-	switch tx.Operation {
-	case 0:
+	if tx.Operation == 0 {
 		operation = "CALL"
-	case 1:
+	} else if tx.Operation == 1 {
 		operation = "DELEGATECALL"
-	default:
+	} else {
 		operation = "UNKNOWN OPERATION ❌"
 	}
 
@@ -281,12 +280,11 @@ func prettyPrintValue(w io.Writer, key string, value interface{}, keyColor func(
 	}
 
 	// For complex types, use specialized formatting functions
-	switch valueKind {
-	case reflect.Slice, reflect.Array:
+	if valueKind == reflect.Slice || valueKind == reflect.Array {
 		prettyPrintArray(w, key, value, keyColor, indent, depth)
-	case reflect.Map:
+	} else if valueKind == reflect.Map {
 		prettyPrintMap(w, key, value, keyColor, indent, depth)
-	case reflect.Struct:
+	} else if valueKind == reflect.Struct {
 		prettyPrintStructObj(w, key, value, keyColor, indent, depth)
 	}
 }
