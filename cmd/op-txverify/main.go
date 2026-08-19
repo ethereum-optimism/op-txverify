@@ -63,7 +63,7 @@ func main() {
 					&cli.StringFlag{
 						Name:     "network",
 						Aliases:  []string{"n"},
-						Usage:    "Network name: ethereum, op, base (required)",
+						Usage:    "Network name: ethereum, op, base, sepolia (required)",
 						Required: true,
 					},
 					&cli.StringFlag{
@@ -98,7 +98,7 @@ func main() {
 					&cli.StringFlag{
 						Name:     "network",
 						Aliases:  []string{"n"},
-						Usage:    "Network name: ethereum, op, base (required)",
+						Usage:    "Network name: ethereum, op, base, sepolia (required)",
 						Required: true,
 					},
 					&cli.StringFlag{
