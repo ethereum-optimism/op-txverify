@@ -280,3 +280,12 @@ button:disabled {
         font-size: 14px;
     }
 }
+
+/* Netlify injects a deploy-preview widget before </body> that positions itself with an inline
+   style attribute. style-src blocks that attribute, so the element loses its positioning and
+   renders as a stray band in the page flow. Hide it instead of allowing the inline style: this
+   page should not render injected third-party UI at all. The element does not exist on
+   production, so this rule is inert there. */
+[data-netlify-deploy-id] {
+    display: none;
+}

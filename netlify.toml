@@ -17,8 +17,11 @@
     # from CSP3 in 2022 and never shipped - so that risk is handled in review, not here.
     Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.safe.global; form-action 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     # Without HSTS a single plaintext navigation lets an on-path attacker serve a substituted
-    # app.js with no CSP at all, which defeats the header above.
-    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    # app.js with no CSP at all, which defeats the header above. max-age is 31536000 because
+    # Netlify pins it to one year at the platform level and silently overrides a larger value -
+    # production already serves that with no netlify.toml present. includeSubDomains and preload
+    # do come from here.
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "no-referrer"
