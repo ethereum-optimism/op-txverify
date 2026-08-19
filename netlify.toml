@@ -8,6 +8,13 @@
   publish = "site"
   command = "./scripts/build-site.sh"
 
+  [build.environment]
+    # Fail loudly if the image's Go does not match .go-version, instead of silently pulling a
+    # toolchain over the network mid-build. The version itself is pinned in .go-version, which
+    # Netlify honours ahead of GO_VERSION; the image default is a moving 1.x, so without the pin a
+    # Go release could change the compiler with no commit.
+    GOTOOLCHAIN = "local"
+
 [[headers]]
   for = "/*"
 
@@ -15,7 +22,11 @@
     # form-action and frame-src do not inherit from default-src, so both are listed explicitly.
     # No CSP directive can block <meta http-equiv="refresh"> navigation - navigate-to was dropped
     # from CSP3 in 2022 and never shipped - so that risk is handled in review, not here.
-    Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.safe.global; form-action 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    # 'wasm-unsafe-eval' is what lets WebAssembly.instantiate run at all, and it needs Safari/iOS
+    # 16.4+: older iOS ignores the unknown source expression, leaving 'self', and instantiation
+    # fails. connect-src needs 'self' because the wasm module and build-info.json are loaded with
+    # fetch(), which connect-src governs, and lists the JSON-RPC endpoints used for contract checks.
+    Content-Security-Policy = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.safe.global https://ethereum-rpc.publicnode.com https://optimism-rpc.publicnode.com https://base-rpc.publicnode.com https://ethereum-sepolia-rpc.publicnode.com; form-action 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     # Without HSTS a single plaintext navigation lets an on-path attacker serve a substituted
     # app.js with no CSP at all, which defeats the header above. max-age is 31536000 because
     # Netlify pins it to one year at the platform level and silently overrides a larger value -
