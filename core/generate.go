@@ -4,28 +4,61 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 )
 
+// SafeAPITransaction is one queued transaction as returned by the Safe Transaction Service.
+type SafeAPITransaction struct {
+	SafeTxHash     string      `json:"safeTxHash"`
+	IsExecuted     bool        `json:"isExecuted"`
+	To             string      `json:"to"`
+	Value          string      `json:"value"`
+	Data           string      `json:"data"`
+	Operation      int         `json:"operation"`
+	SafeTxGas      int         `json:"safeTxGas"`
+	BaseGas        int         `json:"baseGas"`
+	GasPrice       string      `json:"gasPrice"`
+	GasToken       string      `json:"gasToken"`
+	RefundReceiver string      `json:"refundReceiver"`
+	DataDecoded    interface{} `json:"dataDecoded"`
+}
+
 // APIResponse represents the response from the Safe API
 type APIResponse struct {
-	Count   int `json:"count"`
-	Results []struct {
-		To             string      `json:"to"`
-		Value          string      `json:"value"`
-		Data           string      `json:"data"`
-		Operation      int         `json:"operation"`
-		SafeTxGas      int         `json:"safeTxGas"`
-		BaseGas        int         `json:"baseGas"`
-		GasPrice       string      `json:"gasPrice"`
-		GasToken       string      `json:"gasToken"`
-		RefundReceiver string      `json:"refundReceiver"`
-		DataDecoded    interface{} `json:"dataDecoded"`
-	} `json:"results"`
+	Count   int                  `json:"count"`
+	Results []SafeAPITransaction `json:"results"`
+}
+
+// selectQueuedTransaction picks the single transaction queued at a nonce. A Safe can hold several
+// competing proposals at one nonce and anyone able to queue can add one, so returning the first
+// result would silently verify a transaction the signer never intended.
+func selectQueuedTransaction(resp APIResponse, safeAddress string, nonce uint64) (*SafeAPITransaction, error) {
+	if resp.Count == 0 || len(resp.Results) == 0 {
+		return nil, fmt.Errorf("no transaction found for safe %s with nonce %d", safeAddress, nonce)
+	}
+
+	if resp.Count > 1 || len(resp.Results) > 1 {
+		candidates := make([]string, 0, len(resp.Results))
+		for _, result := range resp.Results {
+			state := "pending"
+			if result.IsExecuted {
+				state = "executed"
+			}
+			candidates = append(candidates, fmt.Sprintf("%s (%s)", result.SafeTxHash, state))
+		}
+		// There is no --safe-tx-hash flag, so point at the paths that do take a hash directly.
+		return nil, fmt.Errorf(
+			"safe %s has %d transactions at nonce %d: %s; "+
+				"a nonce lookup cannot tell which one you mean - verify it by hash instead, "+
+				"via op-txverify.optimism.io or `op-txverify offline --tx <json>`",
+			safeAddress, resp.Count, nonce, strings.Join(candidates, ", "),
+		)
+	}
+
+	return &resp.Results[0], nil
 }
 
 // SafeInfoResponse represents the response from the Safe info API
@@ -104,13 +137,11 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		return nil, fmt.Errorf("error parsing API response: %w", err)
 	}
 
-	// Check if transaction exists
-	if apiResp.Count == 0 {
-		return nil, fmt.Errorf("no transaction found for safe %s with nonce %d", safeAddress, nonce)
+	selected, err := selectQueuedTransaction(apiResp, safeAddress, nonce)
+	if err != nil {
+		return nil, err
 	}
-
-	// Use the first transaction in the results
-	tx := apiResp.Results[0]
+	tx := *selected
 
 	var nested *Nested
 	content := tx
@@ -192,11 +223,10 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		}
 	}
 
-	// Convert string values to appropriate types
-	// Value can exceed 64-bit range; parse into big.Int
-	valueBig := new(big.Int)
-	if _, ok := valueBig.SetString(content.Value, 10); !ok {
-		return nil, fmt.Errorf("invalid value: %s", content.Value)
+	// Value can exceed 64-bit range, so it is carried as a big.Int.
+	valueBig, err := ParseWei(content.Value)
+	if err != nil {
+		return nil, err
 	}
 
 	// GasPrice may be large but typically fits; keep as int for now
@@ -245,7 +275,7 @@ func getNetworkInfo(network string) (string, uint64, error) {
 		apiURL = "https://safe-transaction-sepolia.safe.global"
 		chainID = SepoliaChainID
 	default:
-		return "", 0, fmt.Errorf("unsupported network: %s (must be ethereum, op, or base)", network)
+		return "", 0, fmt.Errorf("unsupported network: %s (must be ethereum, op, base, or sepolia)", network)
 	}
 
 	return apiURL, chainID, nil
