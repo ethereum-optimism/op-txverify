@@ -34,8 +34,26 @@
         </div>
         
         <button id="startBtn">Start Display</button>
+
+        <div class="verify-mode">
+            <div class="input-group">
+                <select id="verifyNetwork">
+                    <option value="1">Ethereum</option>
+                    <option value="10">OP Mainnet</option>
+                    <option value="8453">Base</option>
+                    <option value="11155111">Sepolia</option>
+                </select>
+                <input type="text" id="verifySafe" placeholder="Safe address">
+                <input type="text" id="verifyNonce" placeholder="Nonce">
+            </div>
+            <button id="verifyBtn">Verify</button>
+            <div class="verify-panel" id="verifyPanel"></div>
+            <div class="build-info" id="buildInfo"></div>
+        </div>
     </div>
 
     <script src="/app.js"></script>
+    <script src="/wasm/wasm_exec.js"></script>
+    <script src="/verify.js"></script>
 </body>
 </html>

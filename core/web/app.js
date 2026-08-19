@@ -31,7 +31,9 @@ const DOM = {
 // this origin, and CSP re-checks the redirect target against connect-src, so we point here directly.
 const CHAIN_ID_TO_BASE_URL = {
     1: 'https://api.safe.global/tx-service/eth',
-    10: 'https://api.safe.global/tx-service/oeth'
+    10: 'https://api.safe.global/tx-service/oeth',
+    8453: 'https://api.safe.global/tx-service/base',
+    11155111: 'https://api.safe.global/tx-service/sep'
 };
 
 const SAFE_FETCH_MAX_ATTEMPTS = 5;

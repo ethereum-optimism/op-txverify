@@ -281,6 +281,71 @@ button:disabled {
     }
 }
 
+/* Verify mode */
+.verify-mode {
+    margin-top: 24px;
+    text-align: left;
+}
+
+.verify-panel:empty {
+    display: none;
+}
+
+.verify-panel h3 {
+    font-size: 14px;
+    margin: 20px 0 8px;
+}
+
+.verify-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.verify-label {
+    flex: 0 0 110px;
+    color: #666;
+    font-size: 13px;
+}
+
+.verify-value {
+    flex: 1 1 200px;
+    font-family: monospace;
+    font-size: 13px;
+    word-break: break-all;
+}
+
+/* A hash the contract and the local recomputation disagree on must not read as ordinary output. */
+.verify-warn .verify-value,
+.verify-warn .verify-label {
+    color: #FF0420;
+    font-weight: 600;
+}
+
+.verify-decode {
+    background: #f5f5f5;
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-x: auto;
+}
+
+.verify-note {
+    font-size: 12px;
+    color: #666;
+}
+
+/* A version indicator, not an integrity check: serve-time injection never touches the artifact
+   this digest describes. */
+.build-info {
+    margin-top: 16px;
+    font-family: monospace;
+    font-size: 11px;
+    color: #999;
 /* Netlify injects a deploy-preview widget before </body> that positions itself with an inline
    style attribute. style-src blocks that attribute, so the element loses its positioning and
    renders as a stray band in the page flow. Hide it instead of allowing the inline style: this
