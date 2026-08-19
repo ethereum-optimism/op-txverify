@@ -15,7 +15,7 @@ func TestCalculateDomainHash(t *testing.T) {
 			name: "Ethereum Mainnet Safe 1",
 			tx: SafeTransaction{
 				Safe:        "0x847B5c174615B1B7fDF770882256e2D3E95b9D92",
-				SafeVersion: "1.3.0",
+				SafeVersion: "1.4.1", // VERSION() on-chain; the hash is unchanged because the domain branches only at <= 1.2.0
 				Chain:       1,
 			},
 			expected: "0xa4a9c312badf3fcaa05eafe5dc9bee8bd9316c78ee8b0bebe3115bb21b732672",
@@ -73,7 +73,7 @@ func TestCalculateMessageHash(t *testing.T) {
 			name: "Ethereum Mainnet Safe Tx 1",
 			tx: SafeTransaction{
 				Safe:           "0x847B5c174615B1B7fDF770882256e2D3E95b9D92",
-				SafeVersion:    "1.3.0",
+				SafeVersion:    "1.4.1",
 				To:             "0xcA11bde05977b3631167028862bE2a173976CA11",
 				Value:          big.NewInt(0),
 				Data:           "0x82ad56cb0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000005a0aae59d09fccbddb6c6cceb07b7279367c3d2a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000024d4d9bdcd493ad64b8f788ed9808c7bf527a10a017d9f263bb7889868ce18b451d685762d00000000000000000000000000000000000000000000000000000000",
@@ -92,7 +92,7 @@ func TestCalculateMessageHash(t *testing.T) {
 			name: "Ethereum Mainnet Safe Tx 2",
 			tx: SafeTransaction{
 				Safe:           "0x847B5c174615B1B7fDF770882256e2D3E95b9D92",
-				SafeVersion:    "1.3.0",
+				SafeVersion:    "1.4.1",
 				To:             "0xcA11bde05977b3631167028862bE2a173976CA11",
 				Value:          big.NewInt(0),
 				Data:           "0x82ad56cb0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000005a0aae59d09fccbddb6c6cceb07b7279367c3d2a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000024d4d9bdcdc94a72f6ae0da3b87a2ecb6e6ce52608c8a9d722a1b5f5f46ed9cc70a54f8a0300000000000000000000000000000000000000000000000000000000",
@@ -177,5 +177,128 @@ func TestCalculateMessageHash(t *testing.T) {
 				t.Errorf("Message hash mismatch. Got %s, want %s", hash, tc.expected)
 			}
 		})
+	}
+}
+
+// TestCalculateApproveHash pins keccak256(0x1901 || domainHash || messageHash). Both expected values
+// were read from getTransactionHash(...) on Safe 0x847B5c174615B1B7fDF770882256e2D3E95b9D92 on
+// mainnet, where the Safe Tx Hash is the approve hash.
+func TestCalculateApproveHash(t *testing.T) {
+	testCases := []struct {
+		name     string
+		tx       SafeTransaction
+		expected string
+	}{
+		{
+			name: "Ethereum Mainnet Safe Tx nonce 15",
+			tx: SafeTransaction{
+				Safe:           "0x847B5c174615B1B7fDF770882256e2D3E95b9D92",
+				SafeVersion:    "1.4.1",
+				To:             "0xcA11bde05977b3631167028862bE2a173976CA11",
+				Value:          big.NewInt(0),
+				Data:           "0x82ad56cb0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000005a0aae59d09fccbddb6c6cceb07b7279367c3d2a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000024d4d9bdcd493ad64b8f788ed9808c7bf527a10a017d9f263bb7889868ce18b451d685762d00000000000000000000000000000000000000000000000000000000",
+				Operation:      1,
+				GasToken:       "0x0000000000000000000000000000000000000000",
+				RefundReceiver: "0x0000000000000000000000000000000000000000",
+				Nonce:          15,
+				Chain:          1,
+			},
+			expected: "0x35004412c6a0f133f101f892afde6fb164d75a62c0627fa3824272ca2bad9346",
+		},
+		{
+			name: "Ethereum Mainnet Safe Tx nonce 14",
+			tx: SafeTransaction{
+				Safe:           "0x847B5c174615B1B7fDF770882256e2D3E95b9D92",
+				SafeVersion:    "1.4.1",
+				To:             "0xcA11bde05977b3631167028862bE2a173976CA11",
+				Value:          big.NewInt(0),
+				Data:           "0x82ad56cb0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000005a0aae59d09fccbddb6c6cceb07b7279367c3d2a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000024d4d9bdcdc94a72f6ae0da3b87a2ecb6e6ce52608c8a9d722a1b5f5f46ed9cc70a54f8a0300000000000000000000000000000000000000000000000000000000",
+				Operation:      1,
+				GasToken:       "0x0000000000000000000000000000000000000000",
+				RefundReceiver: "0x0000000000000000000000000000000000000000",
+				Nonce:          14,
+				Chain:          1,
+			},
+			expected: "0x7f1a24e2ca6b41918e9d6ec6042ba92c8b4bccebc391391d03c560efd84cc0e5",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			hash, err := CalculateApproveHash(tc.tx)
+			if err != nil {
+				t.Fatalf("Failed to calculate approve hash: %v", err)
+			}
+
+			if hash != tc.expected {
+				t.Errorf("Approve hash mismatch. Got %s, want %s", hash, tc.expected)
+			}
+		})
+	}
+}
+
+// contractPreimage is what encodeTransactionData(...) returned for the fixture below on Safe
+// 0x847B5c174615B1B7fDF770882256e2D3E95b9D92 (mainnet, VERSION 1.4.1, nonce 65): the EIP-712
+// preimage 0x1901 || domainHash || messageHash. Captured live, then pinned here so the test is
+// offline — it holds Go's hashing to the Safe's own semantics rather than to itself.
+const contractPreimage = "0x1901" +
+	"a4a9c312badf3fcaa05eafe5dc9bee8bd9316c78ee8b0bebe3115bb21b732672" +
+	"334e4c2b39031202af9c3402f920fcaef14aaa65e0c39142808f09f4d9a97a92"
+
+func TestHashesMatchContractPreimage(t *testing.T) {
+	tx := SafeTransaction{
+		Safe:           "0x847B5c174615B1B7fDF770882256e2D3E95b9D92",
+		SafeVersion:    "1.4.1",
+		Chain:          1,
+		To:             "0xcA11bde05977b3631167028862bE2a173976CA11",
+		Value:          big.NewInt(0),
+		Data:           "0x174dea710000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000005a0aae59d09fccbddb6c6cceb07b7279367c3d2a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000024d4d9bdcdbefcc37ec0dd42e4ebe3c6389c4929047b958910f3cf37376174d1f43b882e9f00000000000000000000000000000000000000000000000000000000",
+		Operation:      1,
+		GasToken:       "0x0000000000000000000000000000000000000000",
+		RefundReceiver: "0x0000000000000000000000000000000000000000",
+		Nonce:          65,
+	}
+
+	wantDomainHash := "0x" + contractPreimage[6:70]
+	wantMessageHash := "0x" + contractPreimage[70:]
+
+	domainHash, err := CalculateDomainHash(tx)
+	if err != nil {
+		t.Fatalf("Failed to calculate domain hash: %v", err)
+	}
+	if domainHash != wantDomainHash {
+		t.Errorf("Domain hash does not match contract preimage. Got %s, want %s", domainHash, wantDomainHash)
+	}
+
+	messageHash, err := CalculateMessageHash(tx)
+	if err != nil {
+		t.Fatalf("Failed to calculate message hash: %v", err)
+	}
+	if messageHash != wantMessageHash {
+		t.Errorf("Message hash does not match contract preimage. Got %s, want %s", messageHash, wantMessageHash)
+	}
+}
+
+// TestCalculateDomainHashLegacy covers the <= 1.2.0 branch, which uses DomainSeparatorTypehashOld
+// and omits chainId. Expected value is domainSeparator() read from Safe
+// 0x10A19e7eE7d7F8a52822f6817de8ea18204F2e4f on mainnet, whose VERSION() is 1.1.1.
+func TestCalculateDomainHashLegacy(t *testing.T) {
+	const expected = "0xbd4ff933d522d1019eb4fa7881d56dccace47e37be67c598ebe1ca383973c0cd"
+
+	// Both chains must give the same hash: chainId is not part of the legacy domain.
+	for _, chain := range []int{1, 10} {
+		tx := SafeTransaction{
+			Safe:        "0x10A19e7eE7d7F8a52822f6817de8ea18204F2e4f",
+			SafeVersion: "1.1.1",
+			Chain:       chain,
+		}
+
+		hash, err := CalculateDomainHash(tx)
+		if err != nil {
+			t.Fatalf("Failed to calculate domain hash: %v", err)
+		}
+		if hash != expected {
+			t.Errorf("Domain hash mismatch for chain %d. Got %s, want %s", chain, hash, expected)
+		}
 	}
 }
