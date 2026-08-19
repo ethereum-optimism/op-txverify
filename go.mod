@@ -2,7 +2,7 @@ module github.com/ethereum-optimism/op-txverify
 
 go 1.23.0
 
-toolchain go1.23.7
+toolchain go1.25.13
 
 require (
 	github.com/Masterminds/semver/v3 v3.3.1
