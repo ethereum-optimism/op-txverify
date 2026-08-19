@@ -35,13 +35,15 @@ const globals = {
   navigator: { clipboard: { readText: async () => clipboard } },
   TextDecoder,
   fflate,
+  localStorage: { getItem: () => null, setItem() {} },
 };
 
 const exported = [
   'extractTransactionHash', 'checkUrlForTransactionData', 'assertExactInteger', 'assertOperation',
-  'state', 'DOM'
+  'state', 'DOM', 'extractSafeChainId', 'parsePreimage', 'esc', 'assertVersionSupported',
 ];
-const source = readFileSync(join(web, 'app.js'), 'utf8');
+// verify.js is a second classic script that reads app.js's globals, so both are evaluated together.
+const source = readFileSync(join(web, 'app.js'), 'utf8') + '\n' + readFileSync(join(web, 'verify.js'), 'utf8');
 const fns = new Function(...Object.keys(globals), `${source}\nreturn { ${exported.join(', ')} };`)(
   ...Object.values(globals)
 );
@@ -226,6 +228,55 @@ check('extracts the hash from a Safe UI link',
   fns.extractTransactionHash('https://app.safe.global/transactions/tx?safe=eth:0xAAA&id=multisig_0xAAA_0xbeef'),
   '0xbeef');
 check('passes a bare hash through', fns.extractTransactionHash('  0xbeef  '), '0xbeef');
+
+// --- verify.js ---------------------------------------------------------------------------------
+
+// The raw eth_call return is ABI-encoded dynamic bytes, so the trailing 32 bytes are padding, not
+// the message hash. Real response for Safe 0x847B5c17...9D92 nonce 65.
+const preimage =
+  '0x0000000000000000000000000000000000000000000000000000000000000020' +
+  '0000000000000000000000000000000000000000000000000000000000000042' +
+  '1901a4a9c312badf3fcaa05eafe5dc9bee8bd9316c78ee8b0bebe3115bb21b732672' +
+  '334e4c2b39031202af9c3402f920fcaef14aaa65e0c39142808f09f4d9a97a92' +
+  '000000000000000000000000000000000000000000000000000000000000';
+
+check('domain hash', fns.parsePreimage(preimage).domainHash,
+  '0xa4a9c312badf3fcaa05eafe5dc9bee8bd9316c78ee8b0bebe3115bb21b732672');
+check('message hash', fns.parsePreimage(preimage).messageHash,
+  '0x334e4c2b39031202af9c3402f920fcaef14aaa65e0c39142808f09f4d9a97a92');
+check('trailing bytes are padding, not the message hash',
+  preimage.slice(-64) === fns.parsePreimage(preimage).messageHash.slice(2), false);
+checkMessage('refuses a wrong length word', rejection(() => fns.parsePreimage(preimage.replace('0042', '0041'))), '66-byte');
+checkMessage('refuses a missing 0x1901 prefix', rejection(() => fns.parsePreimage(preimage.replace('1901a4a9', '1902a4a9'))), 'EIP-712');
+checkMessage('refuses a truncated body whose length word lies',
+  rejection(() => fns.parsePreimage('0x' + '0'.repeat(62) + '20' + '0'.repeat(62) + '42' + 'aa'.repeat(36))), '320-character');
+
+// The chain must come from the Safe URL, never from whichever tx service answers first: Safe <= 1.2.0
+// omits chainId from its domain separator, so the same fields on 2 chains give the same Ledger hashes.
+const safeUrl = (sn) =>
+  `https://app.safe.global/transactions/tx?safe=${sn}:0x847B5c174615B1B7fDF770882256e2D3E95b9D92&id=multisig_0x847B_0xabc`;
+check('reads the eth prefix', fns.extractSafeChainId(safeUrl('eth')), 1);
+check('reads the oeth prefix', fns.extractSafeChainId(safeUrl('oeth')), 10);
+check('reads the base prefix', fns.extractSafeChainId(safeUrl('base')), 8453);
+check('reads the sep prefix', fns.extractSafeChainId(safeUrl('sep')), 11155111);
+check('no prefix yields null', fns.extractSafeChainId('0xabc'), null);
+checkMessage('refuses an unsupported chain prefix', rejection(() => fns.extractSafeChainId(safeUrl('opsep'))), 'does not support');
+
+// Safe 1.5.0 removed encodeTransactionData, and an unreadable version must fail closed.
+for (const bad of ['1.5.0', '2.0.0', '', '1.x', '1']) {
+  checkMessage(`refuses Safe version ${bad || '(empty)'}`,
+    rejection(() => fns.assertVersionSupported('signing', bad)), 'encodeTransactionData');
+}
+for (const ok of ['1.4.1', '1.3.0', '1.1.1']) {
+  let threw = false;
+  try { fns.assertVersionSupported('signing', ok); } catch { threw = true; }
+  check(`accepts Safe version ${ok}`, threw, false);
+}
+
+// ABI string arguments can carry arbitrary text, and rendering API-sourced data is this page's job.
+check('escapes tags', fns.esc('</pre><script>x</script>'), '&lt;/pre&gt;&lt;script&gt;x&lt;/script&gt;');
+check('escapes attribute-breaking quotes', fns.esc('" autofocus onfocus=alert(1) x="'),
+  '&quot; autofocus onfocus=alert(1) x=&quot;');
 
 console.log(failures ? `\n${failures} failure(s)` : '\nweb-test: all checks passed');
 process.exit(failures ? 1 : 0);

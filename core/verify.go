@@ -80,6 +80,24 @@ func (t *SafeTransaction) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	t.Value = value
+
+	// The remaining uint256 fields are decoded into int, so encoding/json already rejects anything
+	// beyond int64. Negatives and an out-of-range operation still get through, and both would be
+	// ABI-packed into unsigned types without complaint - producing a hash for values other than the
+	// ones displayed.
+	if t.Operation != 0 && t.Operation != 1 {
+		return fmt.Errorf("invalid operation %d: Safe allows only 0 (CALL) or 1 (DELEGATECALL)", t.Operation)
+	}
+	for name, field := range map[string]int{
+		"safe_tx_gas": t.SafeTxGas,
+		"base_gas":    t.BaseGas,
+		"gas_price":   t.GasPrice,
+		"nonce":       t.Nonce,
+	} {
+		if field < 0 {
+			return fmt.Errorf("invalid %s %d: must not be negative", name, field)
+		}
+	}
 	return nil
 }
 

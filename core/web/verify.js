@@ -23,6 +23,15 @@ const CHAIN_ID_TO_RPC = {
     11155111: 'https://ethereum-sepolia-rpc.publicnode.com'
 };
 
+// Shown beside the hashes: a signer must be able to see which chain was verified, since the hash
+// comparison alone cannot reveal a wrong-chain lookup on Safe <= 1.2.0.
+const NETWORK_NAMES = {
+    1: 'Ethereum',
+    10: 'OP Mainnet',
+    8453: 'Base',
+    11155111: 'Sepolia'
+};
+
 const EXPLORERS = {
     1: 'https://etherscan.io/address/',
     10: 'https://optimistic.etherscan.io/address/',
@@ -187,7 +196,7 @@ async function runVerify() {
     // A ?tx= or ?txz= link carries fields chosen by whoever built the link. encodeTransactionData is a
     // pure function of its arguments and does not read the queued transaction, so hashing supplied
     // fields would let a compromised computer choose the hash the contract confirms.
-    if (state.directTransactionData) {
+    if (state.directPayloadText) {
         throw new Error(
             'This link supplied the transaction fields instead of a hash, so the hashes would only ' +
             'restate what the link claims. Reopen the page without ?tx=/?txz= and enter the ' +
@@ -198,10 +207,23 @@ async function runVerify() {
     const typed = (DOM.txInput.value || '').trim();
     const safeAddress = (VERIFY_DOM.safe.value || '').trim();
     const nonce = (VERIFY_DOM.nonce.value || '').trim();
+
+    // The network is always explicit. Letting it be inferred from whichever tx service answers
+    // first would be unsafe: Safe <= 1.2.0 omits chainId from its domain separator, so the same
+    // fields on 2 chains give the same Ledger hashes and a wrong-chain lookup would pass the hash
+    // comparison while the addresses mean something else entirely.
     const chainId = parseInt(VERIFY_DOM.network.value, 10);
+    if (!CHAIN_ID_TO_RPC[chainId]) throw new Error('Select a supported network');
 
     let txHash;
     if (typed) {
+        const urlChainId = extractSafeChainId(typed);
+        if (urlChainId !== null && urlChainId !== chainId) {
+            throw new Error(
+                `The Safe URL is for chain ${urlChainId} (${NETWORK_NAMES[urlChainId] || 'unknown'}) ` +
+                `but ${NETWORK_NAMES[chainId]} is selected. Fix the selection rather than guessing.`
+            );
+        }
         txHash = extractTransactionHash(typed);
         if (!txHash.startsWith('0x')) throw new Error('Invalid transaction hash format');
     } else if (safeAddress && nonce) {
@@ -211,8 +233,11 @@ async function runVerify() {
         throw new Error('Enter a safeTxHash, or a Safe address, nonce and network');
     }
 
-    DOM.status.textContent = 'Fetching transaction...';
-    const tx = await fetchTransactionData(txHash);
+    DOM.status.textContent = `Fetching transaction on ${NETWORK_NAMES[chainId]}...`;
+    const tx = await fetchTransactionData(txHash, chainId);
+    if (tx.chain !== chainId) {
+        throw new Error(`Fetched a transaction on chain ${tx.chain}, expected ${chainId}`);
+    }
 
     DOM.status.textContent = 'Loading verifier...';
     await loadWasm();
@@ -236,6 +261,7 @@ async function runVerify() {
         html += check.label === 'ledger'
             ? '<h3>Compare these to your device</h3>'
             : '<h3>The nested transaction being approved</h3>';
+        html += row('Network', `${NETWORK_NAMES[tx.chain]} (chain ${tx.chain})`);
         html += row('Safe', check.target);
 
         if (agree) {
