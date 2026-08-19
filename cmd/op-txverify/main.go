@@ -208,7 +208,7 @@ func onlineAction(c *cli.Context) error {
 
 	// Validate network
 	if network != "ethereum" && network != "op" && network != "base" && network != "sepolia" {
-		return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
+		return fmt.Errorf("invalid network: %s (must be ethereum, op, base, or sepolia)", network)
 	}
 
 	// Strip the chain prefix if present
@@ -251,8 +251,8 @@ func downloadAction(c *cli.Context) error {
 	outputFile := c.String("output")
 
 	// Validate network
-	if network != "ethereum" && network != "op" && network != "base" {
-		return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
+	if network != "ethereum" && network != "op" && network != "base" && network != "sepolia" {
+		return fmt.Errorf("invalid network: %s (must be ethereum, op, base, or sepolia)", network)
 	}
 
 	// Generate the transaction JSON

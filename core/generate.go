@@ -261,18 +261,20 @@ func getNetworkInfo(network string) (string, uint64, error) {
 	var apiURL string
 	var chainID uint64
 
+	// The per-network safe-transaction-*.safe.global hosts now 308-redirect to api.safe.global, so
+	// address it directly rather than relying on a cross-origin redirect.
 	switch network {
 	case "ethereum":
-		apiURL = "https://safe-transaction-mainnet.safe.global"
+		apiURL = "https://api.safe.global/tx-service/eth"
 		chainID = MainnetChainID
 	case "op", "optimism":
-		apiURL = "https://safe-transaction-optimism.safe.global"
+		apiURL = "https://api.safe.global/tx-service/oeth"
 		chainID = OPMainnetChainID
 	case "base":
-		apiURL = "https://safe-transaction-base.safe.global"
+		apiURL = "https://api.safe.global/tx-service/base"
 		chainID = BaseMainnetChainID
 	case "sepolia":
-		apiURL = "https://safe-transaction-sepolia.safe.global"
+		apiURL = "https://api.safe.global/tx-service/sep"
 		chainID = SepoliaChainID
 	default:
 		return "", 0, fmt.Errorf("unsupported network: %s (must be ethereum, op, base, or sepolia)", network)
