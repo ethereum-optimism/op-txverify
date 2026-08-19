@@ -1,0 +1,282 @@
+/* Base styles */
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    text-align: center;
+    margin: 0;
+    padding: 20px;
+    background-color: #ffffff;
+    color: #111111;
+}
+
+/* Layout */
+.container {
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
+    background-color: white;
+    padding: 25px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    box-sizing: border-box;
+}
+
+/* Typography */
+.status {
+    margin: 15px 0;
+    font-weight: 600;
+    color: #333333;
+}
+
+/* Form elements */
+textarea, select, input[type="text"] {
+    width: 100%;
+    margin: 10px 0;
+    padding: 15px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    font-family: monospace;
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    font-size: 16px;
+}
+
+textarea {
+    height: 120px;
+}
+
+select {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 15px center;
+    background-size: 1em;
+}
+
+.input-group {
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+}
+
+.input-group input[type="text"] {
+    flex-grow: 1;
+    margin-right: 10px;
+}
+
+.input-label {
+    display: block;
+    text-align: left;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #333333;
+    max-width: 250px;
+    transition: all 0.2s ease;
+}
+
+button#pasteBtn {
+    padding: 0;
+    width: 51px;
+    height: 51px;
+    max-width: none;
+    margin: 0;
+    flex-shrink: 0;
+    border-radius: 12px;
+    border: 1px solid #e0e0e0;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+button#pasteBtn svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+button#pasteBtn:hover {
+    background-color: #e00319;
+    transform: none;
+    box-shadow: none;
+}
+
+button {
+    background-color: #FF0420;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    font-weight: 600;
+    margin: 15px 2px;
+    cursor: pointer;
+    border-radius: 50px;
+    width: 100%;
+    max-width: 250px;
+    transition: all 0.2s ease;
+}
+
+button:hover {
+    background-color: #e00319;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255,4,32,0.2);
+}
+
+button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* QR code display */
+.qr-container {
+    position: relative;
+    width: 90%;
+    max-width: 300px;
+    height: auto;
+    aspect-ratio: 1/1;
+    margin: 20px auto;
+    background-color: white;
+    border-radius: 16px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+#qrcode {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#qrcode img {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+/* Beats #qrcode img on max-width. */
+#qrcode .default-sunny {
+    max-width: 95%;
+    border-radius: 8px;
+    margin: 20px auto;
+}
+
+.qr-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(255, 255, 255, 0.9);
+    z-index: 10;
+    border-radius: 16px;
+}
+
+/* Initial state; JS toggles it via the inline display property. */
+.qr-overlay.hidden {
+    display: none;
+}
+
+/* Progress bar */
+.qr-overlay progress {
+    width: 80%;
+    height: 8px;
+    margin-top: 15px;
+    border: none;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.qr-overlay progress::-webkit-progress-bar {
+    background-color: #f0f0f0;
+    border-radius: 4px;
+}
+
+.qr-overlay progress::-webkit-progress-value {
+    background-color: #FF0420;
+    border-radius: 4px;
+}
+
+.qr-overlay progress::-moz-progress-bar {
+    background-color: #FF0420;
+    border-radius: 4px;
+}
+
+/* Chunk visualization */
+.chunks-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    margin: 20px auto;
+    max-width: 600px;
+    padding: 10px;
+    background-color: #f5f5f5;
+    border-radius: 12px;
+}
+
+.chunk-indicator {
+    width: 28px;
+    height: 28px;
+    background-color: #e0e0e0;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    margin: 3px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #333333;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.chunk-indicator.current {
+    background-color: #FF0420;
+    color: white;
+    animation: pulse 1s infinite;
+    box-shadow: 0 0 8px rgba(255, 4, 32, 0.5);
+}
+
+@keyframes pulse {
+    0% { transform: scale(1.05); opacity: 0.8; }
+    50% { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1.05); opacity: 0.8; }
+}
+
+/* Responsive design */
+@media (min-width: 768px) {
+    body {
+        padding: 30px;
+    }
+    .container {
+        padding: 30px;
+    }
+    h1 {
+        font-size: 36px;
+    }
+    p {
+        font-size: 18px;
+    }
+    textarea {
+        height: 150px;
+    }
+    button {
+        width: auto;
+    }
+    .chunk-indicator {
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
+    }
+}
