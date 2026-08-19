@@ -37,7 +37,9 @@ func ScanQRCode(deviceID string) (string, error) {
 	fmt.Println("Press Ctrl+C to cancel")
 
 	// Open the browser
-	openBrowser("http://localhost:8081")
+	if err := openBrowser("http://localhost:8081"); err != nil {
+		return "", fmt.Errorf("error opening browser: %w", err)
+	}
 
 	// Wait for result or timeout
 	select {
@@ -78,7 +80,7 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 			w.Header().Set("Content-Type", "application/wasm")
 		}
 
-		w.Write(data)
+		_, _ = w.Write(data)
 	})
 
 	// Store for multi-part QR codes
@@ -89,7 +91,9 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 
 	// Handle the root path
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		tmpl.Execute(w, nil)
+		if err := tmpl.Execute(w, nil); err != nil {
+			http.Error(w, "Error rendering scanner", http.StatusInternalServerError)
+		}
 	})
 
 	// Handle the result endpoint
@@ -100,7 +104,10 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 		}
 
 		// Get the QR code data
-		r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			return
+		}
 		qrText := r.FormValue("data")
 
 		// Check if it's a multi-part QR code
@@ -108,7 +115,7 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 		if strings.HasPrefix(qrText, "PART:") {
 			parts := strings.SplitN(qrText, ":", 4)
 			if len(parts) != 4 {
-				w.Write([]byte(`{"success":false}`))
+				_, _ = w.Write([]byte(`{"success":false}`))
 				return
 			}
 
@@ -117,7 +124,7 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 			data := parts[3]
 
 			if err1 != nil || err2 != nil || partIndex < 1 || partIndex > totalParts {
-				w.Write([]byte(`{"success":false}`))
+				_, _ = w.Write([]byte(`{"success":false}`))
 				return
 			}
 
@@ -138,20 +145,20 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 
 				// Send the complete result
 				resultChan <- combinedData.String()
-				w.Write([]byte(`{"success":true,"complete":true}`))
+				_, _ = w.Write([]byte(`{"success":true,"complete":true}`))
 				return
 			}
 
 			// Send progress update
 			response := fmt.Sprintf(`{"success":true,"complete":false,"partIndex":%d,"totalParts":%d,"remaining":%d}`,
 				partIndex, totalParts, remaining)
-			w.Write([]byte(response))
+			_, _ = w.Write([]byte(response))
 			return
 		}
 
 		// Single QR code (not multi-part)
 		resultChan <- qrText
-		w.Write([]byte(`{"success":true,"complete":true}`))
+		_, _ = w.Write([]byte(`{"success":true,"complete":true}`))
 	})
 
 	// Start the server

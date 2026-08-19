@@ -1,35 +1,48 @@
+version: "2"
 linters:
   enable:
     - revive
-    - gofmt
-    - govet
-    - errcheck
-    - staticcheck
-
-run:
-  deadline: 5m
-
-linters-settings:
-  revive:
+  settings:
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+          disabled: false
+        - name: package-comments
+          severity: warning
+          disabled: false
+        - name: error-naming
+          severity: warning
+          disabled: false
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: exported
-        severity: warning
-        disabled: false
-      - name: package-comments
-        severity: warning
-        disabled: false
-      - name: error-naming
-        severity: warning
-        disabled: false
-
-issues:
-  exclude-dirs:
-    - ".*go/pkg/mod/.*"
-    - ".*/usr/local/go/src/.*"
-  exclude-files:
-    - ".*\\.gen\\.go$"
-    - ".*\\.pb\\.go$"
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - golint
+      - linters:
+          - golint
+        path: _test\.go
+    paths:
+      - .*\.gen\.go$
+      - .*\.pb\.go$
+      - .*go/pkg/mod/.*
+      - .*/usr/local/go/src/.*
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - .*\.gen\.go$
+      - .*\.pb\.go$
+      - .*go/pkg/mod/.*
+      - .*/usr/local/go/src/.*
+      - third_party$
+      - builtin$
+      - examples$

@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -155,9 +156,14 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 				}
 
 				// Convert string values to integers for inner transaction
-				var innerSafeTxGas, innerBaseGas int
-				fmt.Sscanf(innerTx.SafeTxGas, "%d", &innerSafeTxGas)
-				fmt.Sscanf(innerTx.BaseGas, "%d", &innerBaseGas)
+				innerSafeTxGas, err := strconv.Atoi(innerTx.SafeTxGas)
+				if err != nil {
+					return nil, fmt.Errorf("invalid inner safe transaction gas: %w", err)
+				}
+				innerBaseGas, err := strconv.Atoi(innerTx.BaseGas)
+				if err != nil {
+					return nil, fmt.Errorf("invalid inner base gas: %w", err)
+				}
 
 				// Create nested data from outer transaction (using OUTER safe's info)
 				nested = &Nested{
@@ -200,8 +206,10 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 	}
 
 	// GasPrice may be large but typically fits; keep as int for now
-	var gasPrice int
-	fmt.Sscanf(content.GasPrice, "%d", &gasPrice)
+	gasPrice, err := strconv.Atoi(content.GasPrice)
+	if err != nil {
+		return nil, fmt.Errorf("invalid gas price: %w", err)
+	}
 
 	// Create SafeTransaction
 	safeTx := &SafeTransaction{
