@@ -171,6 +171,27 @@ function decodeCompressedTransactionData(compressedTxData) {
 }
 
 // Extract transaction hash from input (link or hash)
+// Safe UI links carry the chain as a short-name prefix on the safe address, e.g. `safe=oeth:0x...`.
+// Anything verifying hashes must take the chain from here rather than letting it be inferred from
+// whichever tx service answers first.
+const SAFE_SHORT_NAME_TO_CHAIN_ID = {
+    eth: 1,
+    oeth: 10,
+    base: 8453,
+    sep: 11155111
+};
+
+function extractSafeChainId(input) {
+    const match = /[?&]safe=([a-z0-9]+):0x[0-9a-fA-F]{40}/.exec(input);
+    if (!match) return null;
+
+    const chainId = SAFE_SHORT_NAME_TO_CHAIN_ID[match[1]];
+    if (!chainId) {
+        throw new Error(`Safe URL names chain "${match[1]}", which this page does not support`);
+    }
+    return chainId;
+}
+
 function extractTransactionHash(input) {
     // Check if input is a URL
     if (input.includes('app.safe.global') && input.includes('id=')) {
@@ -273,8 +294,15 @@ function assertOperation(raw) {
     return parsed;
 }
 
-async function fetchTransactionData(txHash) {
-    const chainIds = Object.keys(CHAIN_ID_TO_BASE_URL);
+// chainId pins the lookup to one network. Without it every chain is probed and whichever service
+// answers first decides what is verified: Safe <= 1.2.0 omits chainId from its domain separator, so
+// identical fields on 2 chains give identical Ledger hashes and a wrong-chain lookup would not show
+// up in the hash comparison.
+async function fetchTransactionData(txHash, chainId = null) {
+    if (chainId !== null && !CHAIN_ID_TO_BASE_URL[chainId]) {
+        throw new Error(`Unsupported chain ${chainId}`);
+    }
+    const chainIds = chainId !== null ? [String(chainId)] : Object.keys(CHAIN_ID_TO_BASE_URL);
     const errors = [];
     
     // First, try each chain API until we find one that returns data
