@@ -16,8 +16,7 @@ commands:
           name: Install golangci-lint
           command: |
             export GOBIN=$(go env GOPATH)/bin
-            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
-              | sh -s -- -b "$GOBIN" v2.12.2
+            go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
             echo "export PATH=$GOBIN:$PATH" >> "$BASH_ENV"
             source "$BASH_ENV"
             golangci-lint version
