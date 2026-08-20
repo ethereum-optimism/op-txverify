@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <title>op-txverify writer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -24,30 +24,36 @@
 
         <div class="chunks-container" id="chunksContainer"></div>
 
-        <div class="status" id="status">Enter transaction hash or link and click Start Display</div>
-        
+        <!-- Results and errors both land here, so it announces itself rather than waiting to be
+             found: a signer who cannot see the screen must still hear DO NOT SIGN. -->
+        <div class="status" id="status" role="status" aria-live="polite">Enter transaction hash or link and click Start Display</div>
+
         <div class="input-group">
+            <label class="visually-hidden" for="txInput">Safe transaction hash or link</label>
             <input type="text" id="txInput" placeholder="Paste Safe tx hash or link...">
-            <button id="pasteBtn">
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 2H8C6.89543 2 6 2.89543 6 4V18C6 19.1046 6.89543 20 8 20H16C17.1046 20 18 19.1046 18 18V4C18 2.89543 17.1046 2 16 2ZM9 4H15V6H9V4ZM16 18H8V8H16V18Z"/><path d="M10 10H14V12H10V10ZM10 14H14V16H10V14Z"/></svg>
+            <button id="pasteBtn" aria-label="Paste from clipboard">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M16 2H8C6.89543 2 6 2.89543 6 4V18C6 19.1046 6.89543 20 8 20H16C17.1046 20 18 19.1046 18 18V4C18 2.89543 17.1046 2 16 2ZM9 4H15V6H9V4ZM16 18H8V8H16V18Z"/><path d="M10 10H14V12H10V10ZM10 14H14V16H10V14Z"/></svg>
             </button>
         </div>
-        
+
         <button id="startBtn">Start Display</button>
 
         <div class="verify-mode">
             <div class="input-group">
+                <label class="visually-hidden" for="verifyNetwork">Network</label>
                 <select id="verifyNetwork">
                     <option value="1">Ethereum</option>
                     <option value="10">OP Mainnet</option>
                     <option value="8453">Base</option>
                     <option value="11155111">Sepolia</option>
                 </select>
+                <label class="visually-hidden" for="verifySafe">Safe address</label>
                 <input type="text" id="verifySafe" placeholder="Safe address">
+                <label class="visually-hidden" for="verifyNonce">Nonce</label>
                 <input type="text" id="verifyNonce" placeholder="Nonce">
             </div>
             <button id="verifyBtn">Verify</button>
-            <div class="verify-panel" id="verifyPanel"></div>
+            <div class="verify-panel" id="verifyPanel" role="status" aria-live="polite"></div>
             <div class="build-info" id="buildInfo"></div>
         </div>
     </div>
@@ -55,5 +61,10 @@
     <script src="/app.js"></script>
     <script src="/wasm/wasm_exec.js"></script>
     <script src="/verify.js"></script>
-</body>
-</html>
+
+<!-- This page deliberately ends without a closing body tag. Netlify's Drawer and its snippet
+     injection both place their script immediately before that tag, and an injected script runs
+     same-origin, which `script-src 'self'` permits and no CSP directive can tell apart from ours.
+     Omitting the tag is valid HTML5 and is the only control this repo holds over that: the
+     dashboard toggles live outside it, so those are a deploy gate rather than something a reviewer
+     can read. build-site.sh fails the build if the tag comes back. -->

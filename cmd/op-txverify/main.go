@@ -125,12 +125,6 @@ func main() {
 				Usage: "Scan a transaction QR code using your camera",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:    "device",
-						Aliases: []string{"d"},
-						Usage:   "Camera device to use (defaults to system default)",
-						Value:   "",
-					},
-					&cli.StringFlag{
 						Name:    "url",
 						Aliases: []string{"u"},
 						Usage:   "Link with tx or compressed txz param (skips scanner)",
@@ -276,7 +270,6 @@ func downloadAction(c *cli.Context) error {
 }
 
 func qrAction(c *cli.Context) error {
-	deviceID := c.String("device")
 	rawURL := c.String("url")
 	outputFormat := c.String("output")
 	verbose := c.Bool("verbose")
@@ -291,7 +284,7 @@ func qrAction(c *cli.Context) error {
 		tx = *decodedTx
 	} else {
 		// Scan QR code from camera
-		data, err := core.ScanQRCode(deviceID)
+		data, err := core.ScanQRCode()
 		if err != nil {
 			return fmt.Errorf("failed to scan QR code: %w", err)
 		}

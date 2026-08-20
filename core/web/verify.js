@@ -53,6 +53,32 @@ const VERIFY_DOM = {
     build: document.getElementById('buildInfo')
 };
 
+// The text the page loads with, restored whenever a result stops describing what is on screen.
+const IDLE_STATUS = DOM.status.textContent;
+
+// A displayed result is a statement about the inputs it was produced from. Editing any of them
+// makes it a statement about a transaction nobody asked about, and a run still in flight would
+// otherwise write its result under inputs it never read. Both are handled by one counter: a run
+// owns the display only while it is still the current generation.
+let generation = 0;
+
+// Every input that feeds a hash, so nothing shown can survive a change to what produced it.
+const VERIFY_INPUTS = [DOM.txInput, VERIFY_DOM.network, VERIFY_DOM.safe, VERIFY_DOM.nonce];
+
+function invalidateResults() {
+    generation++;
+    VERIFY_DOM.panel.innerHTML = '';
+    DOM.status.textContent = IDLE_STATUS;
+}
+
+// The paste button writes to the input, so it is disabled along with it: a disabled input still
+// accepts a programmatic write.
+function setInputsDisabled(disabled) {
+    for (const element of [...VERIFY_INPUTS, VERIFY_DOM.btn, DOM.startBtn, DOM.pasteBtn]) {
+        element.disabled = disabled;
+    }
+}
+
 let wasmReady = null;
 
 function loadWasm() {
@@ -94,7 +120,9 @@ function saveLookup(network, safe, nonce) {
 }
 
 // Resolves a Safe address and nonce to one safeTxHash, refusing to guess when several transactions
-// sit at that nonce.
+// sit at that nonce. The hash it returns is the service's answer rather than the signer's own
+// knowledge, so binding the fetched fields to it proves the two endpoints agree, not that the
+// transaction is the intended one - that is what reading the decode is for.
 async function resolveNonce(chainId, safeAddress, nonce) {
     const baseUrl = CHAIN_ID_TO_BASE_URL[chainId];
     if (!baseUrl) throw new Error(`Unsupported chain ${chainId}`);
@@ -190,8 +218,10 @@ function assertVersionSupported(label, version) {
     }
 }
 
-async function runVerify() {
-    VERIFY_DOM.panel.innerHTML = '';
+async function runVerify(run) {
+    // Read before every write, never cached: the generation can move while this run awaits.
+    const current = () => run === generation;
+    const status = (text) => { if (current()) DOM.status.textContent = text; };
 
     // A ?tx= or ?txz= link carries fields chosen by whoever built the link. encodeTransactionData is a
     // pure function of its arguments and does not read the queued transaction, so hashing supplied
@@ -225,7 +255,6 @@ async function runVerify() {
             );
         }
         txHash = extractTransactionHash(typed);
-        if (!txHash.startsWith('0x')) throw new Error('Invalid transaction hash format');
     } else if (safeAddress && nonce) {
         txHash = await resolveNonce(chainId, safeAddress, nonce);
         saveLookup(chainId, safeAddress, nonce);
@@ -233,13 +262,21 @@ async function runVerify() {
         throw new Error('Enter a safeTxHash, or a Safe address, nonce and network');
     }
 
-    DOM.status.textContent = `Fetching transaction on ${NETWORK_NAMES[chainId]}...`;
+    status(`Fetching transaction on ${NETWORK_NAMES[chainId]}...`);
     const tx = await fetchTransactionData(txHash, chainId);
     if (tx.chain !== chainId) {
         throw new Error(`Fetched a transaction on chain ${tx.chain}, expected ${chainId}`);
     }
 
-    DOM.status.textContent = 'Loading verifier...';
+    // fetchTransactionData bound the fields to the hash it asked for; this is the same statement
+    // made against the hash this page was given, so neither the service nor a rewritten response
+    // can move the transaction under the request.
+    const ledgerHash = tx.nested ? tx.nested.safe_tx_hash : tx.safe_tx_hash;
+    if (ledgerHash !== txHash.toLowerCase()) {
+        throw new Error(`Verified ${ledgerHash} but ${txHash} was requested`);
+    }
+
+    status('Loading verifier...');
     await loadWasm();
 
     const out = window.txvVerify(JSON.stringify(tx));
@@ -249,11 +286,22 @@ async function runVerify() {
         assertVersionSupported(check.label === 'ledger' ? 'signing' : 'nested', check.safeVersion);
     }
 
-    DOM.status.textContent = 'Reading hashes from the Safe contract...';
+    status('Reading hashes from the Safe contract...');
     let html = '';
     let mismatch = false;
 
     for (const check of out.contractChecks) {
+        // The wasm recomputed the hash from the fields it was handed. Requiring it to equal the
+        // hash those fields were fetched under is what makes the pair below the pair the signer
+        // asked about rather than a consistent pair belonging to some other transaction.
+        const expected = check.label === 'ledger' ? ledgerHash : tx.safe_tx_hash;
+        if (check.approveHash.toLowerCase() !== expected) {
+            throw new Error(
+                `DO NOT SIGN. The ${check.label === 'ledger' ? 'signing' : 'approved'} transaction's ` +
+                `fields hash to ${check.approveHash}, not to the requested ${expected}.`
+            );
+        }
+
         const onchain = await ethCall(tx.chain, check.target, check.calldata);
         const agree = onchain.domainHash.toLowerCase() === check.domainHash.toLowerCase()
             && onchain.messageHash.toLowerCase() === check.messageHash.toLowerCase();
@@ -263,6 +311,7 @@ async function runVerify() {
             : '<h3>The nested transaction being approved</h3>';
         html += row('Network', `${NETWORK_NAMES[tx.chain]} (chain ${tx.chain})`);
         html += row('Safe', check.target);
+        html += row('safeTxHash', check.approveHash);
 
         if (agree) {
             html += row('Domain hash', onchain.domainHash);
@@ -292,12 +341,13 @@ async function runVerify() {
         }
     }
 
+    if (!current()) return;
     VERIFY_DOM.panel.innerHTML = html;
 
     if (mismatch) {
         throw new Error('MISMATCH - DO NOT SIGN. The contract and the local recomputation disagree.');
     }
-    DOM.status.textContent = 'Compare the hashes above to your device before signing.';
+    status('Compare the hashes above to your device before signing.');
 }
 
 async function showBuildInfo() {
@@ -310,15 +360,22 @@ async function showBuildInfo() {
     }
 }
 
+for (const element of VERIFY_INPUTS) {
+    element.addEventListener('input', invalidateResults);
+    element.addEventListener('change', invalidateResults);
+}
+
 VERIFY_DOM.btn.addEventListener('click', async () => {
-    VERIFY_DOM.btn.disabled = true;
+    invalidateResults();
+    const run = generation;
+    setInputsDisabled(true);
     try {
-        await runVerify();
+        await runVerify(run);
     } catch (error) {
         console.error(error);
-        DOM.status.textContent = `Error: ${error.message}`;
+        if (run === generation) DOM.status.textContent = `Error: ${error.message}`;
     } finally {
-        VERIFY_DOM.btn.disabled = false;
+        setInputsDisabled(false);
     }
 });
 

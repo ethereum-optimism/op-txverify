@@ -106,6 +106,7 @@ const (
 	testOuterSafe = "0x847B5c174615B1B7fDF770882256e2D3E95b9D92"
 	testInnerSafe = "0x5a0Aae59D09fccBdDb6C6CcEB07B7279367C3d2A"
 	testInnerHash = "0xbefcc37ec0dd42e4ebe3c6389c4929047b958910f3cf37376174d1f43b882e9f"
+	testOuterHash = "0x1c0f1b5ee7e4b0a4c31d95c5a37c0b0e4f5cd3ca2b6a0e1d9f8c7b6a5f4e3d2c"
 	testZeroAddr  = "0x0000000000000000000000000000000000000000"
 )
 
@@ -113,6 +114,7 @@ const (
 // overridden. The API returns every numeric field as a decimal string.
 func innerTxJSON(overrides map[string]string) string {
 	fields := map[string]string{
+		"safeTxHash":     testInnerHash,
 		"safe":           testInnerSafe,
 		"to":             OPL1StandardBridge,
 		"value":          "0",
@@ -134,13 +136,40 @@ func innerTxJSON(overrides map[string]string) string {
 	return string(body)
 }
 
+// outerTxJSON is the nonce-lookup response for the approveHash transaction, with the fields under
+// test overridden.
+func outerTxJSON(overrides map[string]string) string {
+	fields := map[string]string{
+		"safeTxHash":     testOuterHash,
+		"to":             testInnerSafe,
+		"value":          "0",
+		"data":           "0xd4d9bdcd" + strings.TrimPrefix(testInnerHash, "0x"),
+		"gasPrice":       "0",
+		"gasToken":       testZeroAddr,
+		"refundReceiver": testZeroAddr,
+	}
+	for field, value := range overrides {
+		fields[field] = value
+	}
+	body, err := json.Marshal(map[string]any{
+		"count":   1,
+		"results": []any{fields},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return string(body)
+}
+
 // safeAPI serves the three endpoints a nested transaction is assembled from.
 func safeAPI(t *testing.T, innerTx string) *httptest.Server {
 	t.Helper()
-	outerTx := fmt.Sprintf(`{"count":1,"results":[{"to":%q,"value":"0","data":%q,"operation":0,`+
-		`"safeTxGas":0,"baseGas":0,"gasPrice":"0","gasToken":%q,"refundReceiver":%q}]}`,
-		testInnerSafe, "0xd4d9bdcd"+strings.TrimPrefix(testInnerHash, "0x"), testZeroAddr, testZeroAddr)
+	return safeAPIWith(t, outerTxJSON(nil), innerTx, http.StatusOK)
+}
 
+// safeAPIWith is safeAPI with the outer response and the inner endpoint's status supplied.
+func safeAPIWith(t *testing.T, outerTx, innerTx string, innerStatus int) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/safes/" + testOuterSafe + "/", "/api/v1/safes/" + testInnerSafe + "/":
@@ -148,6 +177,7 @@ func safeAPI(t *testing.T, innerTx string) *httptest.Server {
 		case "/api/v1/safes/" + testOuterSafe + "/multisig-transactions/":
 			fmt.Fprint(w, outerTx)
 		case "/api/v2/multisig-transactions/" + testInnerHash + "/":
+			w.WriteHeader(innerStatus)
 			fmt.Fprint(w, innerTx)
 		default:
 			t.Errorf("unexpected request for %s", r.URL.Path)
@@ -195,6 +225,80 @@ func TestGenerateTransaction_RejectsMalformedNumbers(t *testing.T) {
 				t.Fatalf("expected rejection, got %s %d", tc.field, tx.Nonce)
 			}
 			t.Log(err)
+		})
+	}
+}
+
+func TestGenerateTransaction_CarriesTheHashesTheFieldsAreBoundTo(t *testing.T) {
+	server := safeAPI(t, innerTxJSON(nil))
+	defer server.Close()
+
+	tx, err := generateTransaction(server.URL, MainnetChainID, testOuterSafe, 65)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tx.SafeTxHash != testInnerHash {
+		t.Errorf("hashed transaction is bound to %s, want the approved transaction %s", tx.SafeTxHash, testInnerHash)
+	}
+	if tx.Nested.SafeTxHash != testOuterHash {
+		t.Errorf("nested transaction is bound to %s, want the queued transaction %s", tx.Nested.SafeTxHash, testOuterHash)
+	}
+}
+
+// Everything below used to produce a transaction the tool went on to hash and display as if it had
+// read what it asked for.
+func TestGenerateTransaction_RejectsUnboundResponses(t *testing.T) {
+	otherHash := "0x" + strings.Repeat("9", 64)
+
+	tests := []struct {
+		name        string
+		outerTx     string
+		innerTx     string
+		innerStatus int
+		want        string
+	}{
+		{
+			name:        "the queued transaction carries no hash",
+			outerTx:     outerTxJSON(map[string]string{"safeTxHash": ""}),
+			innerTx:     innerTxJSON(nil),
+			innerStatus: http.StatusOK,
+			want:        "cannot be bound to a hash",
+		},
+		{
+			name:        "the approved transaction is not the one the calldata names",
+			outerTx:     outerTxJSON(nil),
+			innerTx:     innerTxJSON(map[string]string{"safeTxHash": otherHash}),
+			innerStatus: http.StatusOK,
+			want:        "returned",
+		},
+		{
+			name:        "the service is down for the approved transaction",
+			outerTx:     outerTxJSON(nil),
+			innerTx:     `{"detail":"unavailable"}`,
+			innerStatus: http.StatusServiceUnavailable,
+			want:        "503",
+		},
+		{
+			name:        "the approveHash argument is truncated",
+			outerTx:     outerTxJSON(map[string]string{"data": "0xd4d9bdcdbeef"}),
+			innerTx:     innerTxJSON(nil),
+			innerStatus: http.StatusOK,
+			want:        "too short",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := safeAPIWith(t, tc.outerTx, tc.innerTx, tc.innerStatus)
+			defer server.Close()
+
+			tx, err := generateTransaction(server.URL, MainnetChainID, testOuterSafe, 65)
+			if err == nil {
+				t.Fatalf("expected rejection, got a transaction on %s nonce %d", tx.Safe, tx.Nonce)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error does not mention %q: %v", tc.want, err)
+			}
 		})
 	}
 }

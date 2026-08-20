@@ -52,7 +52,8 @@ To use the QR code scanner:
     ```bash
     op-txverify qr
     ```
-4. A browser window will automatically open with the QR scanner interface.
+4. A browser window will automatically open with the QR scanner interface. It is served on
+   loopback only, so no other host on the network can submit a scanner result.
 5. Display the QR codes on your mobile device to the QR scanner.
 6. After successful scanning, op-txverify will verify the transaction and display the results.
 

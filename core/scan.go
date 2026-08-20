@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -14,30 +15,36 @@ import (
 //go:embed web/reader.html web/lib/*
 var templateFS embed.FS
 
-// ScanQRCode opens the camera device and scans for a QR code
-// Returns the decoded string content of the QR code
-func ScanQRCode(deviceID string) (string, error) {
+// scanPort is where the scanner page and its result endpoint are served, on loopback only.
+const scanPort = 8081
+
+// ScanQRCode serves the scanner page to a local browser and returns the QR code it decodes.
+func ScanQRCode() (string, error) {
 	// Create a channel to receive the QR code result
 	resultChan := make(chan string)
-	errChan := make(chan error)
 
-	// Start a local web server to access the camera
-	var wg sync.WaitGroup
-	wg.Add(1)
+	listeners, err := listenLoopback(scanPort)
+	if err != nil {
+		return "", err
+	}
+	// Buffered, so a listener that fails after this function has returned does not leave its
+	// goroutine blocked on a send nobody will read.
+	errChan := make(chan error, len(listeners))
 
-	// Start the server
-	go startCameraServer(&wg, resultChan, errChan)
-
-	// Wait for the server to start
-	wg.Wait()
+	// The port is already bound, so there is nothing to wait for: this returns once the page is
+	// being served.
+	if err := startCameraServer(listeners, resultChan, errChan); err != nil {
+		return "", err
+	}
 
 	fmt.Println("Camera activated. Point camera at QR code...")
 	fmt.Println("For multi-part QR codes, scan each code in sequence.")
 	fmt.Println("A browser window should open automatically.")
 	fmt.Println("Press Ctrl+C to cancel")
 
-	// Open the browser
-	_ = openBrowser("http://localhost:8081")
+	// The literal loopback address, not "localhost": that resolves to whichever family the
+	// resolver prefers, which may be one this process did not manage to bind.
+	_ = openBrowser(fmt.Sprintf("http://%s", listeners[0].Addr().String()))
 
 	// Wait for result or timeout
 	select {
@@ -50,16 +57,41 @@ func ScanQRCode(deviceID string) (string, error) {
 	}
 }
 
-func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan error) {
+// listenLoopback binds the port on both loopback families. Binding the wildcard address instead
+// puts the /result endpoint on every interface, so any host on the same network could post a
+// scanner result and choose the transaction this tool goes on to verify. One family is enough:
+// hosts configured for only one of them are ordinary.
+func listenLoopback(port int) ([]net.Listener, error) {
+	var listeners []net.Listener
+	var failures []string
+	for _, host := range []string{"127.0.0.1", "[::1]"} {
+		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", host, err))
+			continue
+		}
+		listeners = append(listeners, listener)
+	}
+	if len(listeners) == 0 {
+		return nil, fmt.Errorf("could not listen on loopback port %d: %s", port, strings.Join(failures, "; "))
+	}
+	return listeners, nil
+}
+
+func startCameraServer(listeners []net.Listener, resultChan chan string, errChan chan error) error {
 	// Create a template from the embedded file
 	tmpl, err := template.ParseFS(templateFS, "web/reader.html")
 	if err != nil {
-		errChan <- fmt.Errorf("error creating template: %w", err)
-		return
+		return fmt.Errorf("error creating template: %w", err)
 	}
 
+	// A private mux rather than http.DefaultServeMux: these endpoints belong to this scan, and
+	// registering them globally panics on a second call and exposes them to any other server the
+	// process happens to run.
+	mux := http.NewServeMux()
+
 	// Serve static files from the embedded filesystem with proper MIME types
-	http.HandleFunc("/lib/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/lib/", func(w http.ResponseWriter, r *http.Request) {
 		// The URL path is /lib/something, but in the embedded FS it's web/lib/something
 		path := "web" + r.URL.Path
 
@@ -88,12 +120,12 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 	)
 
 	// Handle the root path
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		_ = tmpl.Execute(w, nil)
 	})
 
 	// Handle the result endpoint
-	http.HandleFunc("/result", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/result", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -154,16 +186,15 @@ func startCameraServer(wg *sync.WaitGroup, resultChan chan string, errChan chan 
 		_, _ = w.Write([]byte(`{"success":true,"complete":true}`))
 	})
 
-	// Start the server
-	server := &http.Server{Addr: ":8081"}
-
-	// Signal that the server is ready
-	wg.Done()
-
-	// Start the server
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		errChan <- fmt.Errorf("server error: %w", err)
+	server := &http.Server{Handler: mux}
+	for _, listener := range listeners {
+		go func(listener net.Listener) {
+			if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+				errChan <- fmt.Errorf("server error: %w", err)
+			}
+		}(listener)
 	}
+	return nil
 }
 
 // parseInt safely parses a string to an integer

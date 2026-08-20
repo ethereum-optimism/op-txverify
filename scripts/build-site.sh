@@ -33,6 +33,20 @@ if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
+# Netlify's Drawer and its snippet injection both insert a <script> immediately before the closing
+# body tag, and a same-origin script is indistinguishable from ours to `script-src 'self'`. Leaving
+# the tag out is the only control this repo holds over that, so it must not come back by accident.
+for f in $FILES; do
+  case "$f" in
+  *.html)
+    if grep -qi '</body>\|</html>' "core/web/$f"; then
+      echo "build-site: core/web/$f closes body or html, which is where Netlify injects a script; leave both tags off" >&2
+      exit 1
+    fi
+    ;;
+  esac
+done
+
 rm -rf site
 for f in $FILES; do
   mkdir -p "site/$(dirname "$f")"

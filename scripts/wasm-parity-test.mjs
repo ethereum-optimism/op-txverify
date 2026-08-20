@@ -75,12 +75,26 @@ if (!check) {
   if (check.target?.toLowerCase() !== SAFE.toLowerCase()) {
     failures.push(`contractChecks[0].target:\n  want ${SAFE}\n  got  ${check.target}`);
   }
-  for (const field of ["domainHash", "messageHash", "decode", "params", "safeVersion"]) {
+  for (const field of ["domainHash", "messageHash", "approveHash", "decode", "params", "safeVersion"]) {
     if (!check[field]) failures.push(`contractChecks[0].${field}: missing`);
   }
   if (check.domainHash !== expected.domainHash || check.messageHash !== expected.messageHash) {
     failures.push("contractChecks[0] hashes disagree with the verification result");
   }
+}
+
+// The page compares approveHash to the hash it asked the transaction service for, so the export has
+// to carry it and the module has to refuse a transaction whose fields do not produce it. Without
+// keccak here, round-tripping the module's own answer is what pins the binding.
+const HASH_PATTERN = /^0x[0-9a-f]{64}$/;
+if (!HASH_PATTERN.test(check?.approveHash ?? "")) {
+  failures.push(`contractChecks[0].approveHash is not a hash: ${check?.approveHash}`);
+} else {
+  const bound = globalThis.txvVerify(JSON.stringify({ ...tx, safe_tx_hash: check.approveHash }));
+  if (bound?.error) failures.push(`the module rejected its own approveHash: ${bound.error}`);
+
+  const wrong = globalThis.txvVerify(JSON.stringify({ ...tx, safe_tx_hash: `0x${"9".repeat(64)}` }));
+  if (!wrong?.error) failures.push("the module accepted fields bound to a hash they do not produce");
 }
 
 // A nested transaction is the superchain-ops norm and the most error-prone path: the "ledger" check
@@ -122,6 +136,24 @@ if (nestedOut?.error) {
     if (ledger.safeVersion !== nestedTx.nested.safe_version) {
       failures.push(`nested ledger.safeVersion: want ${nestedTx.nested.safe_version} got ${ledger.safeVersion}`);
     }
+    if (ledger.approveHash === inner.approveHash) {
+      failures.push("nested: ledger and inner share a safeTxHash, so one of them is not bound");
+    }
+    // Each half answers to its own hash: the parent's is what the signer asked about, the child's
+    // is what the parent's calldata approves.
+    const bound = globalThis.txvVerify(JSON.stringify({
+      ...nestedTx,
+      safe_tx_hash: inner.approveHash,
+      nested: { ...nestedTx.nested, safe_tx_hash: ledger.approveHash },
+    }));
+    if (bound?.error) failures.push(`the module rejected its own nested hashes: ${bound.error}`);
+
+    const swapped = globalThis.txvVerify(JSON.stringify({
+      ...nestedTx,
+      safe_tx_hash: ledger.approveHash,
+      nested: { ...nestedTx.nested, safe_tx_hash: inner.approveHash },
+    }));
+    if (!swapped?.error) failures.push("the module accepted the parent and child hashes swapped");
   }
 }
 

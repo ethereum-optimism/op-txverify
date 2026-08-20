@@ -422,3 +422,134 @@ func TestSafeTransactionValueUnmarshal(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyTransaction_BindsFieldsToTheRequestedHash(t *testing.T) {
+	tx := testTransaction()
+	hash, err := CalculateApproveHash(tx)
+	if err != nil {
+		t.Fatalf("failed to calculate hash: %v", err)
+	}
+
+	t.Run("accepts the hash of the fields", func(t *testing.T) {
+		bound := tx
+		bound.SafeTxHash = hash
+		if _, err := VerifyTransaction(bound, VerifyOptions{}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	// Every one of these is a field the hash reads, so altering it yields a self-consistent
+	// transaction whose hash is no longer the one that was asked for.
+	tampered := []struct {
+		name  string
+		apply func(*SafeTransaction)
+	}{
+		{"to", func(tx *SafeTransaction) { tx.To = OPL1StandardBridge }},
+		{"value", func(tx *SafeTransaction) { tx.Value = big.NewInt(1) }},
+		{"data", func(tx *SafeTransaction) { tx.Data = "0xdeadbeef" }},
+		{"operation", func(tx *SafeTransaction) { tx.Operation = 1 }},
+		{"nonce", func(tx *SafeTransaction) { tx.Nonce = 2 }},
+		{"safe_tx_gas", func(tx *SafeTransaction) { tx.SafeTxGas = 1 }},
+		{"base_gas", func(tx *SafeTransaction) { tx.BaseGas = 1 }},
+		{"gas_price", func(tx *SafeTransaction) { tx.GasPrice = 1 }},
+		{"gas_token", func(tx *SafeTransaction) { tx.GasToken = OPL1StandardBridge }},
+		{"refund_receiver", func(tx *SafeTransaction) { tx.RefundReceiver = OPL1StandardBridge }},
+		{"chain", func(tx *SafeTransaction) { tx.Chain = 10 }},
+		{"safe", func(tx *SafeTransaction) { tx.Safe = ProxyAdminOwner }},
+		{"safe_version", func(tx *SafeTransaction) { tx.SafeVersion = "1.1.1" }},
+	}
+	for _, tc := range tampered {
+		t.Run("rejects a tampered "+tc.name, func(t *testing.T) {
+			bound := tx
+			bound.SafeTxHash = hash
+			tc.apply(&bound)
+
+			result, err := VerifyTransaction(bound, VerifyOptions{})
+			if err == nil {
+				t.Fatalf("expected rejection, got hash %s", result.ApproveHash)
+			}
+			if !strings.Contains(err.Error(), "not to the requested") {
+				t.Fatalf("error does not name the binding: %v", err)
+			}
+		})
+	}
+
+	t.Run("rejects a malformed hash", func(t *testing.T) {
+		bound := tx
+		bound.SafeTxHash = "0xnope"
+		if _, err := VerifyTransaction(bound, VerifyOptions{}); err == nil {
+			t.Fatal("expected rejection")
+		}
+	})
+
+	t.Run("an unbound transaction still verifies", func(t *testing.T) {
+		if _, err := VerifyTransaction(tx, VerifyOptions{}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+// The nested case has two hashes, and each half must answer to its own: the parent's is the hash
+// the signer asked about, the child's is what the parent's calldata approves.
+func TestVerifyTransaction_BindsBothHalvesOfANestedTransaction(t *testing.T) {
+	child := testTransaction()
+	childHash, err := CalculateApproveHash(child)
+	if err != nil {
+		t.Fatalf("failed to calculate child hash: %v", err)
+	}
+
+	nested := func() SafeTransaction {
+		tx := child
+		tx.SafeTxHash = childHash
+		tx.Nested = &Nested{
+			Safe:        ProxyAdminOwner,
+			SafeVersion: "1.3.0",
+			Nonce:       7,
+			To:          child.Safe,
+			Data:        "0x" + hex.EncodeToString(approveHashData(childHash)),
+		}
+		return tx
+	}
+
+	bound := nested()
+	parent := bound
+	parent.To = parent.Nested.To
+	parent.Safe = parent.Nested.Safe
+	parent.Nonce = parent.Nested.Nonce
+	parent.Value = big.NewInt(0)
+	parent.Data = parent.Nested.Data
+	parentHash, err := CalculateApproveHash(parent)
+	if err != nil {
+		t.Fatalf("failed to calculate parent hash: %v", err)
+	}
+
+	t.Run("accepts both hashes", func(t *testing.T) {
+		tx := nested()
+		tx.Nested.SafeTxHash = parentHash
+		result, err := VerifyTransaction(tx, VerifyOptions{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.ApproveHash != parentHash || result.NestedResult.ApproveHash != childHash {
+			t.Fatalf("hashes = %s / %s, want %s / %s",
+				result.ApproveHash, result.NestedResult.ApproveHash, parentHash, childHash)
+		}
+	})
+
+	t.Run("rejects a parent hash the parent fields do not produce", func(t *testing.T) {
+		tx := nested()
+		tx.Nested.SafeTxHash = childHash
+		if _, err := VerifyTransaction(tx, VerifyOptions{}); err == nil {
+			t.Fatal("expected rejection")
+		}
+	})
+
+	t.Run("rejects a child hash the child fields do not produce", func(t *testing.T) {
+		tx := nested()
+		tx.Nested.SafeTxHash = parentHash
+		tx.SafeTxHash = parentHash
+		if _, err := VerifyTransaction(tx, VerifyOptions{}); err == nil {
+			t.Fatal("expected rejection")
+		}
+	})
+}

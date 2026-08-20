@@ -18,20 +18,34 @@ const fflate = { strToU8: (s) => { encoded.push(s); throw new Error('web-test: s
 let api = {};
 let clipboard = '';
 
+// Handlers are kept per type, and dispatchEvent returns what the handler returned, so awaiting a
+// click still awaits the async work it starts.
 const stubEl = () => ({
-  value: '', textContent: '', innerHTML: '', disabled: false, style: {},
-  addEventListener(_, fn) { this.handler = fn; },
-  click() { return this.handler && this.handler(); }
+  value: '', textContent: '', innerHTML: '', disabled: false, style: {}, handlers: {},
+  addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); },
+  dispatchEvent(event) {
+    let result;
+    for (const fn of this.handlers[event.type] || []) result = fn(event);
+    return result;
+  },
+  click() { return this.dispatchEvent({ type: 'click' }); }
 });
+// A registered response is a body, or { status } for a service that answered with a failure.
+const respond = (url) => {
+  const entry = api[url];
+  if (entry === undefined) return { ok: false, status: 404, statusText: 'Not Found' };
+  if (entry.status) return { ok: false, status: entry.status, statusText: 'Service Unavailable' };
+  return { ok: true, json: async () => entry };
+};
 const globals = {
   document: { getElementById: stubEl },
   window: { addEventListener() {}, location: { search: '' } },
   URLSearchParams,
+  Event,
   console: { log() {}, warn() {}, error() {} },
-  fetch: async (url) => (url in api
-    ? { ok: true, json: async () => api[url] }
-    : { ok: false, status: 404, statusText: 'Not Found' }),
-  setTimeout,
+  fetch: async (url) => respond(url),
+  // Retry backoff without the wait: five attempts of real exponential backoff is 15 seconds.
+  setTimeout: (fn) => setTimeout(fn, 0),
   navigator: { clipboard: { readText: async () => clipboard } },
   TextDecoder,
   fflate,
@@ -41,6 +55,7 @@ const globals = {
 const exported = [
   'extractTransactionHash', 'checkUrlForTransactionData', 'assertExactInteger', 'assertOperation',
   'state', 'DOM', 'extractSafeChainId', 'parsePreimage', 'esc', 'assertVersionSupported',
+  'assertTxHash', 'VERIFY_DOM', 'setInputsDisabled',
 ];
 // verify.js is a second classic script that reads app.js's globals, so both are evaluated together.
 const source = readFileSync(join(web, 'app.js'), 'utf8') + '\n' + readFileSync(join(web, 'verify.js'), 'utf8');
@@ -132,21 +147,23 @@ const INNER_SAFE = `0x${'b'.repeat(40)}`;
 const HASH = `0x${'1'.repeat(64)}`;
 const INNER_HASH = `0x${'2'.repeat(64)}`;
 
-const safeTx = (over) => ({
+// safeTxHash is the hash the response is served under, which the page holds it to.
+const safeTx = (hash, over) => ({
+  safeTxHash: hash,
   safe: INNER_SAFE, to: `0x${'c'.repeat(40)}`, value: '1000000000000000001', data: '0x',
   operation: 0, safeTxGas: '0', baseGas: '0', gasPrice: '0', gasToken: ZERO_ADDRESS,
   refundReceiver: ZERO_ADDRESS, nonce: '7', ...over,
 });
 const plainApi = (over) => ({
-  [`${TX_SERVICE}/v2/multisig-transactions/${HASH}/`]: safeTx(over),
+  [`${TX_SERVICE}/v2/multisig-transactions/${HASH}/`]: safeTx(HASH, over),
   [`${TX_SERVICE}/v1/safes/${INNER_SAFE}/`]: { version: '1.4.1' },
 });
 // An approveHash of INNER_HASH, which the page follows to the transaction being approved.
 const nestedApi = (over) => ({
-  [`${TX_SERVICE}/v2/multisig-transactions/${HASH}/`]: safeTx({
+  [`${TX_SERVICE}/v2/multisig-transactions/${HASH}/`]: safeTx(HASH, {
     safe: OUTER_SAFE, data: `0xd4d9bdcd${INNER_HASH.slice(2)}`, value: '0', nonce: '4', ...over
   }),
-  [`${TX_SERVICE}/v2/multisig-transactions/${INNER_HASH}/`]: safeTx(),
+  [`${TX_SERVICE}/v2/multisig-transactions/${INNER_HASH}/`]: safeTx(INNER_HASH),
   [`${TX_SERVICE}/v1/safes/${OUTER_SAFE}/`]: { version: '1.3.0' },
   [`${TX_SERVICE}/v1/safes/${INNER_SAFE}/`]: { version: '1.4.1' },
 });
@@ -173,6 +190,51 @@ check('the approved transaction is what gets hashed', nested.safe, INNER_SAFE);
 check('the approveHash transaction is carried as nested', nested.nested.safe, OUTER_SAFE);
 check('the nested nonce is the approving Safe\'s', nested.nested.nonce, 4);
 check('the nested version is the approving Safe\'s', nested.nested.safe_version, '1.3.0');
+
+// The fields a response carries only claim to be the transaction that was asked for. Binding them
+// to the hash they were fetched under is what stops a page showing green for a transaction nobody
+// asked about, since any hashed field can be altered into a self-consistent one with a valid hash.
+await start(HASH, plainApi());
+check('the fetched fields are bound to the requested hash',
+  JSON.parse(encoded[0]).safe_tx_hash, HASH.toLowerCase());
+
+await start(HASH, nestedApi());
+const boundNested = JSON.parse(encoded[0]);
+check('the approved transaction is bound to the hash the calldata names',
+  boundNested.safe_tx_hash, INNER_HASH.toLowerCase());
+check('the approving transaction is bound to the requested hash',
+  boundNested.nested.safe_tx_hash, HASH.toLowerCase());
+
+const OTHER_HASH = `0x${'3'.repeat(64)}`;
+for (const [name, responses, want] of [
+  ['returned under a different hash', plainApi({ safeTxHash: OTHER_HASH }), 'different transaction'],
+  ['returned with no hash at all', plainApi({ safeTxHash: undefined }), 'not a 32-byte hash'],
+  ['approving a transaction the service answers with another', {
+    ...nestedApi(),
+    [`${TX_SERVICE}/v2/multisig-transactions/${INNER_HASH}/`]: safeTx(OTHER_HASH),
+  }, 'different transaction'],
+]) {
+  await start(HASH, responses);
+  checkMessage(`refuses fields ${name}`, fns.DOM.status.textContent, want);
+  check(`nothing is encoded for fields ${name}`, encoded.length, 0);
+}
+
+// A service that did not answer is not a statement that the transaction does not exist, and a
+// signer told "not found" would go looking for a transaction that is queued and fine.
+await start(HASH, { [`${TX_SERVICE}/v2/multisig-transactions/${HASH}/`]: { status: 503 } });
+checkMessage('a service failure is reported as a service failure',
+  fns.DOM.status.textContent, 'did not answer');
+check('a service failure encodes nothing', encoded.length, 0);
+await start(HASH, {});
+checkMessage('a genuine absence is still reported as not found',
+  fns.DOM.status.textContent, 'Transaction not found');
+
+for (const raw of ['0x', HASH.slice(0, -1), `${HASH}0`, '0xzz', '', undefined]) {
+  checkMessage(`assertTxHash rejects ${JSON.stringify(raw)}`,
+    rejection(() => fns.assertTxHash('transaction hash', raw)), 'not a 32-byte hash');
+}
+check('assertTxHash lowercases what it accepts',
+  fns.assertTxHash('transaction hash', `0x${'A'.repeat(64)}`), `0x${'a'.repeat(64)}`);
 
 // One case per assertion call site: each of these values would otherwise be hashed as a different
 // number than the API reported, which is a wrong message hash the signer cannot see.
@@ -277,6 +339,39 @@ for (const ok of ['1.4.1', '1.3.0', '1.1.1']) {
 check('escapes tags', fns.esc('</pre><script>x</script>'), '&lt;/pre&gt;&lt;script&gt;x&lt;/script&gt;');
 check('escapes attribute-breaking quotes', fns.esc('" autofocus onfocus=alert(1) x="'),
   '&quot; autofocus onfocus=alert(1) x=&quot;');
+
+// A result describes the inputs it came from. Leaving it on screen after one of them changes shows
+// a signer a green result for a transaction that is no longer the one in the box.
+for (const [what, element, type] of [
+  ['the hash', fns.DOM.txInput, 'input'],
+  ['the network', fns.VERIFY_DOM.network, 'change'],
+  ['the Safe', fns.VERIFY_DOM.safe, 'input'],
+  ['the nonce', fns.VERIFY_DOM.nonce, 'input'],
+]) {
+  fns.VERIFY_DOM.panel.innerHTML = '<div>a previous result</div>';
+  fns.DOM.status.textContent = 'Compare the hashes above to your device before signing.';
+  element.dispatchEvent({ type });
+  check(`changing ${what} drops the previous result`, fns.VERIFY_DOM.panel.innerHTML, '');
+  check(`changing ${what} drops the previous status`, fns.DOM.status.textContent, '');
+}
+
+// The paste button writes to the input directly, which fires nothing on its own.
+fns.VERIFY_DOM.panel.innerHTML = '<div>a previous result</div>';
+clipboard = HASH;
+api = plainApi();
+await fns.DOM.pasteBtn.click();
+await settle();
+check('a paste drops the previous result', fns.VERIFY_DOM.panel.innerHTML, '');
+
+// Nothing that feeds a hash stays editable while a run is reading it, the paste button included:
+// it writes to the input, and a disabled input still accepts a programmatic write.
+fns.setInputsDisabled(true);
+check('verifying disables every input that feeds a hash',
+  [fns.DOM.txInput, fns.DOM.startBtn, fns.DOM.pasteBtn, fns.VERIFY_DOM.network,
+    fns.VERIFY_DOM.safe, fns.VERIFY_DOM.nonce, fns.VERIFY_DOM.btn].every(e => e.disabled), true);
+fns.setInputsDisabled(false);
+check('and re-enables them afterwards',
+  [fns.DOM.txInput, fns.VERIFY_DOM.btn].some(e => e.disabled), false);
 
 console.log(failures ? `\n${failures} failure(s)` : '\nweb-test: all checks passed');
 process.exit(failures ? 1 : 0);

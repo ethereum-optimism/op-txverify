@@ -20,8 +20,11 @@ type VerificationResult struct {
 
 // Nested represents the data about nested approve hash transactions
 type Nested struct {
-	Safe           string `json:"safe"`
-	SafeVersion    string `json:"safe_version"`
+	Safe        string `json:"safe"`
+	SafeVersion string `json:"safe_version"`
+	// SafeTxHash is the hash the fields below are claimed to be, as reported by whoever supplied
+	// them. See SafeTransaction.SafeTxHash.
+	SafeTxHash     string `json:"safe_tx_hash,omitempty"`
 	Nonce          int    `json:"nonce"`
 	Data           string `json:"data"`
 	Operation      int    `json:"operation"`
@@ -35,8 +38,16 @@ type Nested struct {
 
 // SafeTransaction represents a Gnosis Safe transaction
 type SafeTransaction struct {
-	Safe           string   `json:"safe"`
-	SafeVersion    string   `json:"safe_version"`
+	Safe        string `json:"safe"`
+	SafeVersion string `json:"safe_version"`
+	// SafeTxHash is the hash these fields are claimed to be. Every path that fetches a transaction
+	// knows the hash it asked for, and nothing else ties the fields it got back to that hash: a
+	// tampered field produces a valid hash of a different transaction, so a page or terminal
+	// showing green proves only that the fields are self-consistent. Set it and verification
+	// refuses to produce hashes that are not the ones asked for. Empty means unbound, which is all
+	// an offline payload or a scanned QR code can be - there is no independently known hash to
+	// bind to.
+	SafeTxHash     string   `json:"safe_tx_hash,omitempty"`
 	Chain          int      `json:"chain"`
 	To             string   `json:"to"`
 	Value          *big.Int `json:"value"`
@@ -158,6 +169,8 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 		tx.Value = big.NewInt(0)
 		tx.Data = tx.Nested.Data
 		tx.SafeVersion = tx.Nested.SafeVersion
+		// The fields now describe the parent, so the hash they are bound to is the parent's.
+		tx.SafeTxHash = tx.Nested.SafeTxHash
 
 		// The parent has its own gas and refund configuration; inheriting the child's would
 		// hash and display a refund the parent transaction does not pay.
@@ -262,6 +275,14 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 		return nil, fmt.Errorf("failed to calculate approve hash: %w", err)
 	}
 
+	// The one place every hashed path passes through, so binding here covers the CLI, the browser
+	// and the wasm module alike.
+	if tx.SafeTxHash != "" && !strings.EqualFold(tx.SafeTxHash, approveHash) {
+		return nil, fmt.Errorf(
+			"these fields hash to %s, not to the requested %s: they are not the transaction that hash names",
+			approveHash, tx.SafeTxHash)
+	}
+
 	// Create the verification result
 	result := &VerificationResult{
 		Transaction: tx,
@@ -298,7 +319,19 @@ func (tx SafeTransaction) validate() error {
 			return err
 		}
 	}
+	if tx.SafeTxHash != "" {
+		if err := validateHash("safe_tx_hash", tx.SafeTxHash); err != nil {
+			return err
+		}
+	}
 	return validateHex("data", tx.Data)
+}
+
+func validateHash(field, value string) error {
+	if len(strings.TrimPrefix(value, "0x")) != 64 {
+		return fmt.Errorf("%s must be a 32-byte hex hash, got %q", field, value)
+	}
+	return validateHex(field, value)
 }
 
 func validateAddress(field, value string) error {

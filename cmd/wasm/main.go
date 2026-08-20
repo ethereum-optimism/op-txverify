@@ -105,6 +105,11 @@ func contractChecks(result *core.VerificationResult) ([]any, error) {
 			"calldata":    calldata,
 			"domainHash":  c.result.DomainHash,
 			"messageHash": c.result.MessageHash,
+			// keccak256(0x1901 || domainHash || messageHash), which is the safeTxHash the page
+			// asked the Safe transaction service for. The page compares it to what it asked for,
+			// so a substituted field cannot come back as a green result for a different
+			// transaction.
+			"approveHash": c.result.ApproveHash,
 			"decode":      renderCall(c.result.Call, 0),
 			"params":      renderParams(tx),
 		})

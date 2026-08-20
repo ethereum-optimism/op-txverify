@@ -150,6 +150,12 @@ func generateTransaction(apiURL string, chainID uint64, safeAddress string, nonc
 	}
 	tx := *selected
 
+	// Without it there is nothing to hold the fields to, and the hashes below would only restate
+	// whatever the response said.
+	if err := validateHash("safeTxHash", tx.SafeTxHash); err != nil {
+		return nil, fmt.Errorf("the Safe transaction service response cannot be bound to a hash: %w", err)
+	}
+
 	// The hashed transaction is the inner one for a nested approval, so it carries the
 	// inner Safe's nonce; the requested nonce belongs to the outer Safe.
 	txNonce := int(nonce)
@@ -160,95 +166,114 @@ func generateTransaction(apiURL string, chainID uint64, safeAddress string, nonc
 	// Check if this is an approveHash transaction
 	if tx.Data != "" && strings.HasPrefix(tx.Data, "0xd4d9bdcd") {
 		// Extract the hash from the data (skip first 10 chars for function signature, take next 64)
-		if len(tx.Data) >= 74 {
-			innerHash := "0x" + tx.Data[10:74]
+		// A truncated argument used to fall through to a plain transaction with no child block.
+		if len(tx.Data) < 74 {
+			return nil, fmt.Errorf("approveHash calldata %q is too short to carry a 32-byte hash", tx.Data)
+		}
+		innerHash := "0x" + tx.Data[10:74]
 
-			// Fetch the inner transaction using v2 API
-			innerEndpoint := fmt.Sprintf("%s/api/v2/multisig-transactions/%s/", apiURL, innerHash)
-			innerResp, err := http.Get(innerEndpoint)
-			if err != nil {
-				return nil, fmt.Errorf("error fetching inner transaction data: %w", err)
-			}
-			defer innerResp.Body.Close()
+		// Fetch the inner transaction using v2 API
+		innerEndpoint := fmt.Sprintf("%s/api/v2/multisig-transactions/%s/", apiURL, innerHash)
+		innerResp, err := http.Get(innerEndpoint)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching inner transaction data: %w", err)
+		}
+		defer innerResp.Body.Close()
 
-			if innerResp.StatusCode == http.StatusOK {
-				innerBody, err := io.ReadAll(innerResp.Body)
-				if err != nil {
-					return nil, fmt.Errorf("error reading inner transaction response body: %w", err)
-				}
+		// Anything other than 200 used to fall through this block, verifying an approveHash
+		// call with no child transaction attached and nothing saying the child was never read.
+		if innerResp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf(
+				"the Safe transaction service answered %s for the approved transaction %s, so what this approves is unknown",
+				innerResp.Status, innerHash)
+		}
 
-				// Parse inner transaction as a single transaction (not wrapped in APIResponse)
-				var innerTx struct {
-					To             string `json:"to"`
-					Value          string `json:"value"`
-					Data           string `json:"data"`
-					Operation      int    `json:"operation"`
-					SafeTxGas      string `json:"safeTxGas"` // API returns as string
-					BaseGas        string `json:"baseGas"`   // API returns as string
-					GasPrice       string `json:"gasPrice"`
-					GasToken       string `json:"gasToken"`
-					RefundReceiver string `json:"refundReceiver"`
-					Nonce          string `json:"nonce"`
-					Safe           string `json:"safe"`
-				}
+		innerBody, err := io.ReadAll(innerResp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error reading inner transaction response body: %w", err)
+		}
 
-				if err := json.Unmarshal(innerBody, &innerTx); err != nil {
-					return nil, fmt.Errorf("error parsing inner transaction response: %w", err)
-				}
+		// Parse inner transaction as a single transaction (not wrapped in APIResponse)
+		var innerTx struct {
+			SafeTxHash     string `json:"safeTxHash"`
+			To             string `json:"to"`
+			Value          string `json:"value"`
+			Data           string `json:"data"`
+			Operation      int    `json:"operation"`
+			SafeTxGas      string `json:"safeTxGas"` // API returns as string
+			BaseGas        string `json:"baseGas"`   // API returns as string
+			GasPrice       string `json:"gasPrice"`
+			GasToken       string `json:"gasToken"`
+			RefundReceiver string `json:"refundReceiver"`
+			Nonce          string `json:"nonce"`
+			Safe           string `json:"safe"`
+		}
 
-				// Convert string values to integers for inner transaction
-				innerSafeTxGas, err := parseAPIUint("inner transaction safeTxGas", innerTx.SafeTxGas)
-				if err != nil {
-					return nil, err
-				}
-				innerBaseGas, err := parseAPIUint("inner transaction baseGas", innerTx.BaseGas)
-				if err != nil {
-					return nil, err
-				}
-				txNonce, err = parseAPIUint("inner transaction nonce", innerTx.Nonce)
-				if err != nil {
-					return nil, err
-				}
-				outerGasPrice, err := parseAPIUint("gasPrice", tx.GasPrice)
-				if err != nil {
-					return nil, err
-				}
+		if err := json.Unmarshal(innerBody, &innerTx); err != nil {
+			return nil, fmt.Errorf("error parsing inner transaction response: %w", err)
+		}
 
-				// Create nested data from outer transaction (using OUTER safe's info)
-				nested = &Nested{
-					Safe:           safeAddress,
-					SafeVersion:    safeVersion,
-					Nonce:          int(nonce),
-					Data:           tx.Data,
-					Operation:      tx.Operation,
-					To:             tx.To,
-					SafeTxGas:      tx.SafeTxGas,
-					BaseGas:        tx.BaseGas,
-					GasPrice:       outerGasPrice,
-					GasToken:       tx.GasToken,
-					RefundReceiver: tx.RefundReceiver,
-				}
+		// Convert string values to integers for inner transaction
+		innerSafeTxGas, err := parseAPIUint("inner transaction safeTxGas", innerTx.SafeTxGas)
+		if err != nil {
+			return nil, err
+		}
+		innerBaseGas, err := parseAPIUint("inner transaction baseGas", innerTx.BaseGas)
+		if err != nil {
+			return nil, err
+		}
+		txNonce, err = parseAPIUint("inner transaction nonce", innerTx.Nonce)
+		if err != nil {
+			return nil, err
+		}
+		outerGasPrice, err := parseAPIUint("gasPrice", tx.GasPrice)
+		if err != nil {
+			return nil, err
+		}
 
-				// Use inner transaction data as the main content
-				content.To = innerTx.To
-				content.Value = innerTx.Value
-				content.Data = innerTx.Data
-				content.Operation = innerTx.Operation
-				content.SafeTxGas = innerSafeTxGas
-				content.BaseGas = innerBaseGas
-				content.GasPrice = innerTx.GasPrice
-				content.GasToken = innerTx.GasToken
-				content.RefundReceiver = innerTx.RefundReceiver
+		// The hash the parent's calldata approves is the only statement of which
+		// transaction the child is meant to be, so the response has to answer to it.
+		if !strings.EqualFold(innerTx.SafeTxHash, innerHash) {
+			return nil, fmt.Errorf(
+				"asked for the approved transaction %s and the service returned %q instead",
+				innerHash, innerTx.SafeTxHash)
+		}
 
-				// For the main transaction, we need the INNER safe's info
-				safeAddress = innerTx.Safe // Update to use inner safe address
+		// Create nested data from outer transaction (using OUTER safe's info)
+		nested = &Nested{
+			Safe:           safeAddress,
+			SafeVersion:    safeVersion,
+			SafeTxHash:     tx.SafeTxHash,
+			Nonce:          int(nonce),
+			Data:           tx.Data,
+			Operation:      tx.Operation,
+			To:             tx.To,
+			SafeTxGas:      tx.SafeTxGas,
+			BaseGas:        tx.BaseGas,
+			GasPrice:       outerGasPrice,
+			GasToken:       tx.GasToken,
+			RefundReceiver: tx.RefundReceiver,
+		}
 
-				// Fetch the inner safe's version for the main transaction
-				safeVersion, err = fetchSafeVersion(apiURL, innerTx.Safe)
-				if err != nil {
-					return nil, fmt.Errorf("error fetching inner safe version: %w", err)
-				}
-			}
+		// Use inner transaction data as the main content
+		content.To = innerTx.To
+		content.Value = innerTx.Value
+		content.Data = innerTx.Data
+		content.Operation = innerTx.Operation
+		content.SafeTxGas = innerSafeTxGas
+		content.BaseGas = innerBaseGas
+		content.GasPrice = innerTx.GasPrice
+		content.GasToken = innerTx.GasToken
+		content.RefundReceiver = innerTx.RefundReceiver
+		content.SafeTxHash = innerTx.SafeTxHash
+
+		// For the main transaction, we need the INNER safe's info
+		safeAddress = innerTx.Safe // Update to use inner safe address
+
+		// Fetch the inner safe's version for the main transaction
+		safeVersion, err = fetchSafeVersion(apiURL, innerTx.Safe)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching inner safe version: %w", err)
 		}
 	}
 
@@ -267,6 +292,7 @@ func generateTransaction(apiURL string, chainID uint64, safeAddress string, nonc
 	safeTx := &SafeTransaction{
 		Safe:           safeAddress,
 		SafeVersion:    safeVersion,
+		SafeTxHash:     content.SafeTxHash,
 		Chain:          int(chainID),
 		To:             content.To,
 		Value:          valueBig,

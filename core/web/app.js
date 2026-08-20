@@ -285,6 +285,27 @@ function assertExactInteger(name, raw) {
     return parsed;
 }
 
+const TX_HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
+
+function assertTxHash(name, raw) {
+    if (!TX_HASH_PATTERN.test(String(raw || ''))) {
+        throw new Error(`${name} is ${raw || '(missing)'}, which is not a 32-byte hash`);
+    }
+    return String(raw).toLowerCase();
+}
+
+// The fields a response carries are only ever a claim about which transaction they belong to.
+// Every hashed field can be altered into a self-consistent transaction with a different hash, so a
+// response that answers a request for one hash with the fields of another must not pass.
+function assertAnsweredHash(what, requested, returned) {
+    if (assertTxHash(`${what} requested hash`, requested) !== assertTxHash(`${what} safeTxHash`, returned)) {
+        throw new Error(
+            `Asked the Safe transaction service for ${what} ${requested} and it returned ${returned}. ` +
+            `The fields it sent belong to a different transaction, so nothing here is what was asked for.`
+        );
+    }
+}
+
 // Safe's Operation enum is CALL (0) or DELEGATECALL (1). Anything else is not a Safe operation.
 function assertOperation(raw) {
     const parsed = assertExactInteger('operation', raw);
@@ -302,8 +323,13 @@ async function fetchTransactionData(txHash, chainId = null) {
     if (chainId !== null && !CHAIN_ID_TO_BASE_URL[chainId]) {
         throw new Error(`Unsupported chain ${chainId}`);
     }
+    const requestedHash = assertTxHash('transaction hash', txHash);
     const chainIds = chainId !== null ? [String(chainId)] : Object.keys(CHAIN_ID_TO_BASE_URL);
-    const errors = [];
+    // A chain that answered "no such transaction" and a chain whose service was unreachable are
+    // different facts, and reporting the second as the first tells a signer their transaction does
+    // not exist when nobody knows whether it does.
+    const absent = [];
+    const unreachable = [];
     
     // First, try each chain API until we find one that returns data
     let foundContent = null;
@@ -322,7 +348,7 @@ async function fetchTransactionData(txHash, chainId = null) {
 
             if (result === null) {
                 // Transaction not found on this chain, try the next one
-                errors.push(`Chain ${chainId}: Transaction not found`);
+                absent.push(`chain ${chainId}`);
                 continue;
             }
 
@@ -332,24 +358,33 @@ async function fetchTransactionData(txHash, chainId = null) {
             foundBaseUrl = baseUrl;
             break;
         } catch (error) {
-            errors.push(`Chain ${chainId}: ${error.message}`);
+            unreachable.push(`chain ${chainId}: ${error.message}`);
             // Continue to try the next API
         }
     }
-    
-    // If we didn't find the transaction on any network, throw an error
+
     if (!foundContent) {
-        throw new Error(`Transaction not found on any network. Errors: ${errors.join('; ')}`);
+        if (unreachable.length) {
+            throw new Error(
+                `The Safe transaction service did not answer, so whether this transaction exists is ` +
+                `unknown: ${unreachable.join('; ')}` +
+                (absent.length ? ` (not found on ${absent.join(', ')})` : '')
+            );
+        }
+        throw new Error(`Transaction not found on ${absent.join(', ')}`);
     }
+
+    assertAnsweredHash('the transaction', requestedHash, foundContent.safeTxHash);
     
     // Now process the transaction data
     let content = foundContent;
     let nested = null;
     
     // Check if this is an approveHash transaction
+    let boundHash = requestedHash;
     if (content.data && content.data.startsWith('0xd4d9bdcd')) {
         // Extract the hash from the data (skip first 10 chars for function signature)
-        const innerHash = '0x' + content.data.slice(10, 10 + 64);
+        const innerHash = assertTxHash('approved hash', '0x' + content.data.slice(10, 10 + 64));
         console.log("Detected approveHash transaction, inner hash:", innerHash);
 
         // Fetch the inner transaction with retry logic
@@ -357,11 +392,15 @@ async function fetchTransactionData(txHash, chainId = null) {
         const innerContent = await fetchWithRetries(innerUrl, {
             context: `Inner transaction fetch for ${innerHash}`
         });
+        // The parent's calldata is the only statement of which transaction the child is meant to
+        // be, so the response has to answer to it.
+        assertAnsweredHash('the approved transaction', innerHash, innerContent.safeTxHash);
 
         // Set the nested data
         nested = {
             safe: content.safe,
             safe_version: await fetchSafeVersion(foundChainId, content.safe),
+            safe_tx_hash: requestedHash,
             nonce: assertExactInteger('nonce', content.nonce),
             data: content.data,
             operation: assertOperation(content.operation),
@@ -370,12 +409,16 @@ async function fetchTransactionData(txHash, chainId = null) {
 
         // Use the inner transaction data instead
         content = innerContent;
+        boundHash = innerHash;
     }
 
     // Return the processed transaction data
     return {
         safe: content.safe,
         safe_version: await fetchSafeVersion(foundChainId, content.safe),
+        // Binds these fields to the hash they were fetched under, so verification refuses to hash
+        // anything other than the transaction that was asked for.
+        safe_tx_hash: boundHash,
         chain: parseInt(foundChainId),
         to: content.to,
         // Passed through as a string: parseInt loses precision above 2^53-1 wei, which
@@ -600,9 +643,10 @@ DOM.pasteBtn.addEventListener('click', async function() {
     try {
         const text = await navigator.clipboard.readText();
         DOM.txInput.value = text;
+        // Assigning to value fires nothing, and verify.js listens for input to drop a result that
+        // no longer describes the box.
+        DOM.txInput.dispatchEvent(new Event('input', { bubbles: true }));
         DOM.startBtn.click(); // Programmatically click the Start Display button
-        // Optionally, trigger input event if other parts of the script listen for it
-        // DOM.txInput.dispatchEvent(new Event('input', { bubbles: true }));
     } catch (err) {
         console.error('Failed to read clipboard contents: ', err);
         DOM.status.textContent = "Failed to paste from clipboard. Make sure you've granted permission.";
