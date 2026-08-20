@@ -45,9 +45,22 @@ const state = {
     transferId: null,
     qrCodeImages: [],
     displayedChunks: new Set(),
-    directTransactionData: null,
-    directTransactionJson: null
+    directPayloadText: null
 };
+
+// A non-fatal decoder turns invalid UTF-8 into U+FFFD, and the replacements would be re-encoded into
+// the QR codes as if the link had carried them.
+const PAYLOAD_DECODER = new TextDecoder('utf-8', { fatal: true });
+
+// The payload is only ever re-serialized into the QR codes, so re-encoding it can only lose
+// information: JSON.parse cannot hold a uint256.
+function validateDirectPayload(json) {
+    const parsed = JSON.parse(json);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('transaction payload is not a JSON object');
+    }
+    return json;
+}
 
 // Check for transaction data in URL parameters when page loads
 function checkUrlForTransactionData() {
@@ -59,20 +72,11 @@ function checkUrlForTransactionData() {
         try {
             const decodedData = compressedTxData
                 ? decodeCompressedTransactionData(compressedTxData)
-                : atob(txData);
-            // The decoded text is kept verbatim and forwarded to the QR encoder unchanged. Parsing
-            // and re-serializing would round any integer above 2^53-1 - JSON.parse cannot hold one -
-            // so the QR codes would carry a value the link never did. op-txverify validates the
-            // fields when it decodes them, which is the right place for it.
-            state.directTransactionJson = decodedData;
-            // Parsed only to reject malformed input early and to flag that a payload was supplied.
-            // Do NOT read numeric fields off this: they may be rounded.
-            state.directTransactionData = JSON.parse(decodedData);
+                : PAYLOAD_DECODER.decode(base64UrlToUint8Array(txData));
+            state.directPayloadText = validateDirectPayload(decodedData);
             
             // Update UI to show we have direct transaction data
             DOM.status.textContent = "Transaction data found in URL";
-            DOM.txInput.value = "Transaction data from URL";
-            DOM.txInput.disabled = true;
             
             // Auto-start the QR code generation
             DOM.startBtn.click();
@@ -96,8 +100,11 @@ function base64ToUint8Array(base64) {
     return bytes;
 }
 
+// Accepts either alphabet, as decodeBase64Payload in core/url_payload.go does. The space is a + that
+// URLSearchParams decoded, and atob strips whitespace instead of failing, so leaving it would decode
+// the payload to different bytes without an error.
 function base64UrlToUint8Array(base64Url) {
-    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/').replace(/ /g, '+');
     const padding = base64.length % 4;
     if (padding) {
         base64 += '='.repeat(4 - padding);
@@ -158,7 +165,7 @@ function fastLZDecompress(data) {
 function decodeCompressedTransactionData(compressedTxData) {
     const compressedBytes = base64UrlToUint8Array(compressedTxData);
     const decompressedBytes = fastLZDecompress(compressedBytes);
-    return new TextDecoder().decode(decompressedBytes);
+    return PAYLOAD_DECODER.decode(decompressedBytes);
 }
 
 // Extract transaction hash from input (link or hash)
@@ -242,13 +249,29 @@ async function fetchSafeVersion(chainId, safeAddress) {
     return data.version;
 }
 
-// Updated to separate API checking from data processing
-async function fetchTransactionData(txHash) {
-    // If we have direct transaction data from URL parameter, use it instead of API call
-    if (state.directTransactionData) {
-        return state.directTransactionData;
+// The Safe API returns these as decimal strings. Number() silently rounds above 2^53-1, and the
+// rounded figure would then be hashed by both the wasm recomputation and the Safe contract, so an
+// unrepresentable value must fail rather than be quietly altered.
+function assertExactInteger(name, raw) {
+    const parsed = Number(raw);
+    // Negatives are rejected too: these are uint256 fields, and a negative would be ABI-packed as a
+    // very large unsigned value, hashing something other than what was displayed.
+    if (!Number.isSafeInteger(parsed) || parsed < 0 || String(parsed) !== String(raw).trim()) {
+        throw new Error(`${name} is ${raw}, which is not an exactly representable unsigned integer`);
     }
-    
+    return parsed;
+}
+
+// Safe's Operation enum is CALL (0) or DELEGATECALL (1). Anything else is not a Safe operation.
+function assertOperation(raw) {
+    const parsed = assertExactInteger('operation', raw);
+    if (parsed !== 0 && parsed !== 1) {
+        throw new Error(`operation is ${raw}; Safe allows only 0 (CALL) or 1 (DELEGATECALL)`);
+    }
+    return parsed;
+}
+
+async function fetchTransactionData(txHash) {
     const chainIds = Object.keys(CHAIN_ID_TO_BASE_URL);
     const errors = [];
     
@@ -309,9 +332,9 @@ async function fetchTransactionData(txHash) {
         nested = {
             safe: content.safe,
             safe_version: await fetchSafeVersion(foundChainId, content.safe),
-            nonce: parseInt(content.nonce),
+            nonce: assertExactInteger('nonce', content.nonce),
             data: content.data,
-            operation: content.operation,
+            operation: assertOperation(content.operation),
             to: content.to,
         };
 
@@ -329,13 +352,13 @@ async function fetchTransactionData(txHash) {
         // silently corrupts the message hash. op-txverify accepts a string or a number.
         value: content.value,
         data: content.data,
-        operation: content.operation,
-        safe_tx_gas: parseInt(content.safeTxGas),
-        base_gas: parseInt(content.baseGas),
-        gas_price: parseInt(content.gasPrice),
+        operation: assertOperation(content.operation),
+        safe_tx_gas: assertExactInteger('safeTxGas', content.safeTxGas),
+        base_gas: assertExactInteger('baseGas', content.baseGas),
+        gas_price: assertExactInteger('gasPrice', content.gasPrice),
         gas_token: content.gasToken,
         refund_receiver: content.refundReceiver,
-        nonce: parseInt(content.nonce),
+        nonce: assertExactInteger('nonce', content.nonce),
         nested,
     };
 }
@@ -564,20 +587,11 @@ DOM.startBtn.addEventListener('click', async function() {
     try {
         let transactionData;
         
-        // If we have direct transaction data from URL parameter, use it
-        if (state.directTransactionJson) {
-            transactionData = state.directTransactionJson;
-            DOM.status.textContent = "Using transaction data from URL...";
-        } else {
-            // Otherwise, proceed with normal flow
-            // Get transaction hash
-            const txInput = DOM.txInput.value.trim();
-            
-            if (!txInput) {
-                DOM.status.textContent = "Please enter a transaction hash or link";
-                return;
-            }
-            
+        // The box is the only source of a hash and a supplied payload is used only while it is empty,
+        // so no payload can stand in for a hash the signer can read. Typing over it disarms the link.
+        const txInput = DOM.txInput.value.trim();
+        
+        if (txInput) {
             // Extract transaction hash from the input
             const txHash = extractTransactionHash(txInput);
             
@@ -596,6 +610,12 @@ DOM.startBtn.addEventListener('click', async function() {
             
             // Fetch transaction data
             transactionData = await fetchTransactionData(txHash);
+        } else if (state.directPayloadText) {
+            transactionData = state.directPayloadText;
+            DOM.status.textContent = "Using transaction data from URL...";
+        } else {
+            DOM.status.textContent = "Please enter a transaction hash or link";
+            return;
         }
 
         // Hide the sunny image and show overlay with progress
