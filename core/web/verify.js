@@ -1,17 +1,13 @@
 /**
- * Verify mode.
+ * Verify mode. Shows a signer the two EIP-712 hashes their hardware wallet will display, plus the
+ * decoded calldata, without involving the computer running the Safe UI.
  *
- * Shows a signer the two EIP-712 hashes their hardware wallet will display, plus the decoded
- * calldata, without involving the computer running the Safe UI.
+ * Two independent sources for every hash: the Safe contract's own encodeTransactionData over
+ * eth_call, and the wasm module recomputing it from the fetched parameters. A wrong preimage
+ * disagrees visibly instead of substituting a hash.
  *
- * The hashes are read from the Safe contract's own encodeTransactionData via eth_call. The wasm
- * module recomputes them independently from the fetched parameters, so an RPC returning a wrong
- * preimage disagrees visibly instead of substituting a hash. The decode comes from
- * core/parsing.go compiled to wasm, so there is one decoder implementation rather than a
- * JavaScript copy that could drift from the CLI.
- *
- * Depends on globals from app.js: fetchWithRetries, fetchTransactionData, extractTransactionHash,
- * CHAIN_ID_TO_BASE_URL, DOM, state.
+ * A classic script; takes fetchWithRetries, fetchTransactionData, extractTransactionHash,
+ * CHAIN_ID_TO_BASE_URL, DOM and state from app.js.
  */
 
 // One endpoint per chain is enough: the wasm recomputes the same hashes from the fetched

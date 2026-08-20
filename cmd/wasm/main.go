@@ -69,14 +69,12 @@ func txvVerify(_ js.Value, args []js.Value) (out any) {
 	return map[string]any{"result": string(encoded), "contractChecks": checks}
 }
 
-// contractChecks lists the eth_calls the page should make, each carrying everything needed to render
-// and gate it. "ledger" is the pair the signer compares against the device; "inner" is the nested
-// transaction being approved, when there is one.
+// contractChecks lists the eth_calls the page should make. "ledger" is the pair the signer compares
+// against the device; "inner" is the nested transaction being approved, when there is one.
 //
-// The decode and the parameter block are rendered here rather than in the page because this side
-// holds exact big.Int values: JSON.parse rounds integers above 2^53-1, which would show a signer a
-// wrong amount. Each entry is also self-contained so the page never pairs one transaction's hashes
-// with another's parameters — for a nested transaction those differ.
+// Each entry carries its own rendered decode and parameters: this side holds exact big.Int values
+// where JSON.parse would round above 2^53-1, and self-contained entries mean the page cannot pair
+// one transaction's hashes with another's parameters, which for a nested transaction differ.
 func contractChecks(result *core.VerificationResult) ([]any, error) {
 	checks := make([]any, 0, 2)
 	for _, c := range []struct {

@@ -40,13 +40,10 @@ type Nested struct {
 type SafeTransaction struct {
 	Safe        string `json:"safe"`
 	SafeVersion string `json:"safe_version"`
-	// SafeTxHash is the hash these fields are claimed to be. Every path that fetches a transaction
-	// knows the hash it asked for, and nothing else ties the fields it got back to that hash: a
-	// tampered field produces a valid hash of a different transaction, so a page or terminal
-	// showing green proves only that the fields are self-consistent. Set it and verification
-	// refuses to produce hashes that are not the ones asked for. Empty means unbound, which is all
-	// an offline payload or a scanned QR code can be - there is no independently known hash to
-	// bind to.
+	// SafeTxHash is the hash these fields are claimed to be. A tampered field produces a valid
+	// hash of a different transaction, so self-consistency proves nothing on its own; set this and
+	// verification refuses to return hashes that are not the ones asked for. Empty means unbound,
+	// which is all an offline payload or a scanned QR code can be.
 	SafeTxHash     string   `json:"safe_tx_hash,omitempty"`
 	Chain          int      `json:"chain"`
 	To             string   `json:"to"`

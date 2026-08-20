@@ -1,12 +1,6 @@
-/**
- * QR Code Generator Application
- * 
- * This script handles the generation and display of QR codes for Gnosis Safe transaction data transfer.
- * It fetches transaction data from the Safe API, compresses it, applies Shamir's Secret Sharing for redundancy,
- * and creates QR codes to display the shares.
- */
+// The writer page: fetches a Safe transaction, compresses it, erasure-codes it and displays the
+// shares as a QR sequence for an air-gapped device to scan.
 
-// Configuration constants
 const CONFIG = {
     CHUNK_SIZE: 500,       // Size of each data chunk in characters
     DISPLAY_TIME: 250,     // Time to display each QR code in ms
@@ -15,7 +9,6 @@ const CONFIG = {
     MIN_SHARES: 13         // Minimum number of shares to generate
 };
 
-// DOM element references
 const DOM = {
     txInput: document.getElementById('txInput'),
     startBtn: document.getElementById('startBtn'),
@@ -39,7 +32,6 @@ const CHAIN_ID_TO_BASE_URL = {
 const SAFE_FETCH_MAX_ATTEMPTS = 5;
 const SAFE_FETCH_BASE_DELAY_MS = 1000;
 
-// Application state
 const state = {
     chunks: [],
     currentChunkIndex: 0,
@@ -64,7 +56,6 @@ function validateDirectPayload(json) {
     return json;
 }
 
-// Check for transaction data in URL parameters when page loads
 function checkUrlForTransactionData() {
     const urlParams = new URLSearchParams(window.location.search);
     const txData = urlParams.get('tx');
@@ -77,10 +68,8 @@ function checkUrlForTransactionData() {
                 : PAYLOAD_DECODER.decode(base64UrlToUint8Array(txData));
             state.directPayloadText = validateDirectPayload(decodedData);
             
-            // Update UI to show we have direct transaction data
             DOM.status.textContent = "Transaction data found in URL";
             
-            // Auto-start the QR code generation
             DOM.startBtn.click();
         } catch (error) {
             console.error("Error parsing transaction data from URL:", error);
@@ -88,10 +77,6 @@ function checkUrlForTransactionData() {
         }
     }
 }
-
-/**
- * Utility Functions
- */
 
 function base64ToUint8Array(base64) {
     const binary = atob(base64);
@@ -170,7 +155,6 @@ function decodeCompressedTransactionData(compressedTxData) {
     return PAYLOAD_DECODER.decode(decompressedBytes);
 }
 
-// Extract transaction hash from input (link or hash)
 // Safe UI links carry the chain as a short-name prefix on the safe address, e.g. `safe=oeth:0x...`.
 // Anything verifying hashes must take the chain from here rather than letting it be inferred from
 // whichever tx service answers first.
@@ -193,11 +177,8 @@ function extractSafeChainId(input) {
 }
 
 function extractTransactionHash(input) {
-    // Check if input is a URL
     if (input.includes('app.safe.global') && input.includes('id=')) {
-        // Extract the transaction hash from the URL
         const idParam = input.split('id=')[1];
-        // If there are more parameters after the id, split by &
         const txHash = idParam.includes('&') ? idParam.split('&')[0] : idParam;
         
         // The hash might be part of a longer string like multisig_0x...address_0x...hash
@@ -208,21 +189,14 @@ function extractTransactionHash(input) {
         return txHash;
     }
     
-    // If it's already a hash, return it cleaned (in case there are spaces or other characters)
     return input.trim();
 }
 
-// Promise-based timeout helper for retry backoff
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Generic fetch with exponential backoff retries
-// Options:
-//   maxAttempts: number of retry attempts (default: SAFE_FETCH_MAX_ATTEMPTS)
-//   baseDelayMs: base delay for exponential backoff (default: SAFE_FETCH_BASE_DELAY_MS)
-//   context: string for error messages
-//   notFoundStatuses: array of status codes to treat as "not found" (returns null)
 async function fetchWithRetries(url, options = {}) {
     const maxAttempts = options.maxAttempts || SAFE_FETCH_MAX_ATTEMPTS;
     const baseDelayMs = options.baseDelayMs || SAFE_FETCH_BASE_DELAY_MS;
@@ -234,7 +208,6 @@ async function fetchWithRetries(url, options = {}) {
         try {
             const response = await fetch(url);
             if (!response.ok) {
-                // Check if this is an expected "not found" status
                 if (notFoundStatuses.includes(response.status)) {
                     return null;
                 }
@@ -256,7 +229,6 @@ async function fetchWithRetries(url, options = {}) {
     throw new Error(`${context} failed after ${maxAttempts} attempts: ${lastError?.message || 'Unknown error'}`);
 }
 
-// Fetch the Safe version for a given chain and address
 async function fetchSafeVersion(chainId, safeAddress) {
     const baseUrl = CHAIN_ID_TO_BASE_URL[chainId];
     if (!baseUrl) {
@@ -330,7 +302,6 @@ async function fetchTransactionData(txHash, chainId = null) {
     const absent = [];
     const unreachable = [];
     
-    // First, try each chain API until we find one that returns data
     let foundContent = null;
     let foundChainId = null;
     let foundBaseUrl = null;
@@ -346,19 +317,16 @@ async function fetchTransactionData(txHash, chainId = null) {
             });
 
             if (result === null) {
-                // Transaction not found on this chain, try the next one
                 absent.push(`chain ${chainId}`);
                 continue;
             }
 
-            // Found a valid response, store it and break out of the loop
             foundContent = result;
             foundChainId = chainId;
             foundBaseUrl = baseUrl;
             break;
         } catch (error) {
             unreachable.push(`chain ${chainId}: ${error.message}`);
-            // Continue to try the next API
         }
     }
 
@@ -375,18 +343,14 @@ async function fetchTransactionData(txHash, chainId = null) {
 
     assertAnsweredHash('the transaction', requestedHash, foundContent.safeTxHash);
     
-    // Now process the transaction data
     let content = foundContent;
     let nested = null;
     
-    // Check if this is an approveHash transaction
     let boundHash = requestedHash;
     if (content.data && content.data.startsWith('0xd4d9bdcd')) {
-        // Extract the hash from the data (skip first 10 chars for function signature)
         const innerHash = assertTxHash('approved hash', '0x' + content.data.slice(10, 10 + 64));
         console.log("Detected approveHash transaction, inner hash:", innerHash);
 
-        // Fetch the inner transaction with retry logic
         const innerUrl = `${foundBaseUrl}/api/v2/multisig-transactions/${innerHash}/`;
         const innerContent = await fetchWithRetries(innerUrl, {
             context: `Inner transaction fetch for ${innerHash}`
@@ -395,7 +359,6 @@ async function fetchTransactionData(txHash, chainId = null) {
         // be, so the response has to answer to it.
         assertAnsweredHash('the approved transaction', innerHash, innerContent.safeTxHash);
 
-        // Set the nested data
         nested = {
             safe: content.safe,
             safe_version: await fetchSafeVersion(foundChainId, content.safe),
@@ -406,12 +369,10 @@ async function fetchTransactionData(txHash, chainId = null) {
             to: content.to,
         };
 
-        // Use the inner transaction data instead
         content = innerContent;
         boundHash = innerHash;
     }
 
-    // Return the processed transaction data
     return {
         safe: content.safe,
         safe_version: await fetchSafeVersion(foundChainId, content.safe),
@@ -435,28 +396,22 @@ async function fetchTransactionData(txHash, chainId = null) {
     };
 }
 
-// Generate a unique transfer ID
 function generateTransferId() {
     return 'transfer-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
 }
 
-// Calculate SHA-256 hash using Web Crypto API
 async function calculateSHA256(str) {
-    // Convert string to ArrayBuffer
     const encoder = new TextEncoder();
     const data = encoder.encode(str);
     
-    // Calculate hash
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     
-    // Convert to hex string
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     
     return hashHex;
 }
 
-// Stop any ongoing QR code display
 function stopDisplay() {
     if (state.displayInterval) {
         clearInterval(state.displayInterval);
@@ -464,7 +419,6 @@ function stopDisplay() {
     }
 }
 
-// Convert Uint8Array to base64 string
 function uint8ArrayToBase64(uint8Array) {
     let binary = '';
     const bytes = new Uint8Array(uint8Array);
@@ -475,11 +429,6 @@ function uint8ArrayToBase64(uint8Array) {
     return btoa(binary);
 }
 
-/**
- * UI Functions
- */
-
-// Create visual indicators for chunks
 function createChunkIndicators(count) {
     DOM.chunksContainer.innerHTML = '';
     for (let i = 0; i < count; i++) {
@@ -491,12 +440,9 @@ function createChunkIndicators(count) {
     }
 }
 
-// Update chunk indicators to show progress
 function updateChunkIndicators(currentIndex) {
-    // Mark current chunk as displayed
     state.displayedChunks.add(currentIndex);
     
-    // Update all indicators
     const indicators = DOM.chunksContainer.querySelectorAll('.chunk-indicator');
     indicators.forEach((indicator, index) => {
         indicator.classList.remove('current');
@@ -507,41 +453,30 @@ function updateChunkIndicators(currentIndex) {
     });
 }
 
-// Display a QR code at the specified index
 function displayQRCode(index) {
     if (!state.chunks || index >= state.chunks.length) return;
     
-    // Clear previous QR code and the sunny image
     DOM.qrcodeDiv.innerHTML = '';
     
-    // Create image element
     const img = document.createElement('img');
     img.src = state.qrCodeImages[index];
     img.style.maxWidth = '100%';
     img.style.maxHeight = '100%';
     DOM.qrcodeDiv.appendChild(img);
     
-    // Update chunk indicators
     updateChunkIndicators(index);
 }
 
-/**
- * Core Application Logic
- */
-
-// Generate QR codes from transaction data
 // transactionData is either the verbatim JSON text of a supplied payload or an object built from the
 // Safe API. Forwarding the text unchanged keeps a supplied payload byte-identical through the QR
 // codes, so the air-gapped device verifies what the link carried rather than a re-serialization.
 async function generateQRCodes(transactionData) {
     const jsonData = typeof transactionData === 'string' ? transactionData : JSON.stringify(transactionData);
     
-    // Compress data using fflate
     const jsonBytes = fflate.strToU8(jsonData);
     const compressedData = fflate.zlibSync(jsonBytes);
     const compressedSize = compressedData.length;
 
-    // Calculate parameters for erasure coding
     const originalBlobs = Math.ceil(compressedSize / CONFIG.CHUNK_SIZE);
     
     // allowedFailures determines how many extra shares to create for redundancy
@@ -553,17 +488,13 @@ async function generateQRCodes(transactionData) {
 
     console.log(`Data size: ${compressedSize} bytes, Required Shards: ${originalBlobs}, Allowed failures: ${allowedFailures}`);
 
-    // Use erasure.js to split the data
     const shares = erasure.split(compressedData, originalBlobs, allowedFailures);
 
-    // Generate a new transfer ID
     state.transferId = generateTransferId();
     
-    // Calculate checksum for the original compressed data
     const base64CompressedData = uint8ArrayToBase64(compressedData);
     const fullChecksum = await calculateSHA256(base64CompressedData);
     
-    // Create QR code data for each shard
     state.chunks = [];
     for (let i = 0; i < shares.length; i++) {
         const shardData = uint8ArrayToBase64(shares[i]);
@@ -582,23 +513,18 @@ async function generateQRCodes(transactionData) {
         });
     }
     
-    // Reset displayed chunks
     state.displayedChunks = new Set();
     
-    // Create chunk indicators
     createChunkIndicators(state.chunks.length);
     
-    // Generate all QR codes in advance
     state.qrCodeImages = [];
     
     for (let i = 0; i < state.chunks.length; i++) {
         const chunk = state.chunks[i];
         const qrData = JSON.stringify(chunk);
         
-        // Update progress
         DOM.generateProgress.value = (i / state.chunks.length) * 100;
         
-        // Generate QR code as data URL
         const dataUrl = await new Promise((resolve, reject) => {
             QRCode.toDataURL(qrData, {
                 errorCorrectionLevel: CONFIG.ERROR_CORRECTION,
@@ -617,27 +543,18 @@ async function generateQRCodes(transactionData) {
     }
 }
 
-// Start displaying QR codes
 function startQRCodeDisplay() {
-    // Display info
     DOM.status.textContent = `Displaying ${state.chunks.length} QR codes`;
     
-    // Start displaying QR codes
     state.currentChunkIndex = 0;
     displayQRCode(state.currentChunkIndex);
     
-    // Set up interval to rotate through QR codes
     state.displayInterval = setInterval(function() {
         state.currentChunkIndex = (state.currentChunkIndex + 1) % state.chunks.length;
         displayQRCode(state.currentChunkIndex);
     }, CONFIG.DISPLAY_TIME);
 }
 
-/**
- * Event Handlers
- */
-
-// Paste button click handler
 DOM.pasteBtn.addEventListener('click', async function() {
     try {
         const text = await navigator.clipboard.readText();
@@ -652,9 +569,7 @@ DOM.pasteBtn.addEventListener('click', async function() {
     }
 });
 
-// Start button click handler
 DOM.startBtn.addEventListener('click', async function() {
-    // Stop any ongoing display
     stopDisplay();
 
     try {
@@ -665,7 +580,6 @@ DOM.startBtn.addEventListener('click', async function() {
         const txInput = DOM.txInput.value.trim();
         
         if (txInput) {
-            // Extract transaction hash from the input
             const txHash = extractTransactionHash(txInput);
             
             if (!txHash.startsWith('0x')) {
@@ -673,7 +587,6 @@ DOM.startBtn.addEventListener('click', async function() {
                 return;
             }
             
-            // Hide the sunny image and show overlay with progress
             if (document.getElementById('defaultSunny')) {
                 document.getElementById('defaultSunny').style.display = 'none';
             }
@@ -691,29 +604,22 @@ DOM.startBtn.addEventListener('click', async function() {
             return;
         }
 
-        // Hide the sunny image and show overlay with progress
         if (document.getElementById('defaultSunny')) {
             document.getElementById('defaultSunny').style.display = 'none';
         }
         DOM.qrOverlay.style.display = 'flex';
         DOM.generateProgress.value = 0;
         
-        // Disable button during generation
         DOM.startBtn.disabled = true;
         
-        // Update status
         DOM.status.textContent = "Generating QR codes...";
         
-        // Generate QR codes from the transaction data
         await generateQRCodes(transactionData);
         
-        // Hide overlay
         DOM.qrOverlay.style.display = 'none';
         
-        // Enable button
         DOM.startBtn.disabled = false;
         
-        // Start displaying QR codes
         startQRCodeDisplay();
         
     } catch (error) {
@@ -721,13 +627,10 @@ DOM.startBtn.addEventListener('click', async function() {
         DOM.status.textContent = "Error: " + error.message;
         DOM.qrOverlay.style.display = 'none';
         DOM.startBtn.disabled = false;
-        // Show sunny image again on error
         document.getElementById('defaultSunny').style.display = 'block';
     }
 });
 
-// Clean up when the page is closed
 window.addEventListener('beforeunload', stopDisplay);
 
-// Check for URL parameter when page loads
 window.addEventListener('DOMContentLoaded', checkUrlForTransactionData);
