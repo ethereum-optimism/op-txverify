@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -101,6 +102,12 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		return nil, err
 	}
 
+	return generateTransaction(apiURL, chainID, safeAddress, nonce)
+}
+
+// generateTransaction is GenerateTransaction with the Safe API base URL supplied, so tests
+// can serve the responses it assembles a transaction from.
+func generateTransaction(apiURL string, chainID uint64, safeAddress string, nonce uint64) (*SafeTransaction, error) {
 	// Normalize safe address
 	safeAddress = common.HexToAddress(safeAddress).Hex()
 
@@ -142,6 +149,10 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		return nil, err
 	}
 	tx := *selected
+
+	// The hashed transaction is the inner one for a nested approval, so it carries the
+	// inner Safe's nonce; the requested nonce belongs to the outer Safe.
+	txNonce := int(nonce)
 
 	var nested *Nested
 	content := tx
@@ -186,18 +197,36 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 				}
 
 				// Convert string values to integers for inner transaction
-				var innerSafeTxGas, innerBaseGas int
-				_, _ = fmt.Sscanf(innerTx.SafeTxGas, "%d", &innerSafeTxGas)
-				_, _ = fmt.Sscanf(innerTx.BaseGas, "%d", &innerBaseGas)
+				innerSafeTxGas, err := parseAPIUint("inner transaction safeTxGas", innerTx.SafeTxGas)
+				if err != nil {
+					return nil, err
+				}
+				innerBaseGas, err := parseAPIUint("inner transaction baseGas", innerTx.BaseGas)
+				if err != nil {
+					return nil, err
+				}
+				txNonce, err = parseAPIUint("inner transaction nonce", innerTx.Nonce)
+				if err != nil {
+					return nil, err
+				}
+				outerGasPrice, err := parseAPIUint("gasPrice", tx.GasPrice)
+				if err != nil {
+					return nil, err
+				}
 
 				// Create nested data from outer transaction (using OUTER safe's info)
 				nested = &Nested{
-					Safe:        safeAddress,
-					SafeVersion: safeVersion,
-					Nonce:       int(nonce),
-					Data:        tx.Data,
-					Operation:   tx.Operation,
-					To:          tx.To,
+					Safe:           safeAddress,
+					SafeVersion:    safeVersion,
+					Nonce:          int(nonce),
+					Data:           tx.Data,
+					Operation:      tx.Operation,
+					To:             tx.To,
+					SafeTxGas:      tx.SafeTxGas,
+					BaseGas:        tx.BaseGas,
+					GasPrice:       outerGasPrice,
+					GasToken:       tx.GasToken,
+					RefundReceiver: tx.RefundReceiver,
 				}
 
 				// Use inner transaction data as the main content
@@ -229,9 +258,10 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		return nil, err
 	}
 
-	// GasPrice may be large but typically fits; keep as int for now
-	var gasPrice int
-	_, _ = fmt.Sscanf(content.GasPrice, "%d", &gasPrice)
+	gasPrice, err := parseAPIUint("gasPrice", content.GasPrice)
+	if err != nil {
+		return nil, err
+	}
 
 	// Create SafeTransaction
 	safeTx := &SafeTransaction{
@@ -247,11 +277,21 @@ func GenerateTransaction(network string, safeAddress string, nonce uint64) (*Saf
 		GasPrice:       gasPrice,
 		GasToken:       content.GasToken,
 		RefundReceiver: content.RefundReceiver,
-		Nonce:          int(nonce),
+		Nonce:          txNonce,
 		Nested:         nested,
 	}
 
 	return safeTx, nil
+}
+
+// parseAPIUint parses one of the decimal integer strings the Safe API returns. fmt.Sscanf
+// reports the leading digits of a malformed value as a plausible number instead of failing.
+func parseAPIUint(field, value string) (int, error) {
+	parsed, err := strconv.ParseUint(value, 10, 63)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q: %w", field, value, err)
+	}
+	return int(parsed), nil
 }
 
 // getNetworkInfo returns the API URL and chain ID for a network
