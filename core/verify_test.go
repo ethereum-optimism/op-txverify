@@ -387,6 +387,24 @@ func TestSafeTransactionValueUnmarshal(t *testing.T) {
 		}
 	}
 
+	// A missing or null value must not skip the checks below it. Omitted values are supported for
+	// offline and compressed-URL payloads, so an early return there would be a reachable bypass.
+	bypassAttempts := []string{
+		`{"operation":2}`,
+		`{"value":null,"nonce":-1}`,
+		`{"nonce":-1}`,
+		`{"value":null,"operation":2}`,
+		`{"value":null,"safe_tx_gas":-1}`,
+		`{"value":null,"base_gas":-1}`,
+		`{"value":null,"gas_price":-1}`,
+	}
+	for _, payload := range bypassAttempts {
+		var tx SafeTransaction
+		if err := json.Unmarshal([]byte(payload), &tx); err == nil {
+			t.Errorf("Expected an error for %s, got operation=%d nonce=%d", payload, tx.Operation, tx.Nonce)
+		}
+	}
+
 	// Garbage and out-of-range values must fail loudly. abi.Pack reduces modulo 2^256 rather than
 	// erroring, so a negative or oversized value would print one number and hash another.
 	rejected := []string{
