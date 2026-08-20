@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -18,12 +19,17 @@ type VerificationResult struct {
 
 // Nested represents the data about nested approve hash transactions
 type Nested struct {
-	Safe        string `json:"safe"`
-	SafeVersion string `json:"safe_version"`
-	Nonce       int    `json:"nonce"`
-	Data        string `json:"data"`
-	Operation   int    `json:"operation"`
-	To          string `json:"to"`
+	Safe           string `json:"safe"`
+	SafeVersion    string `json:"safe_version"`
+	Nonce          int    `json:"nonce"`
+	Data           string `json:"data"`
+	Operation      int    `json:"operation"`
+	To             string `json:"to"`
+	SafeTxGas      int    `json:"safe_tx_gas"`
+	BaseGas        int    `json:"base_gas"`
+	GasPrice       int    `json:"gas_price"`
+	GasToken       string `json:"gas_token"`
+	RefundReceiver string `json:"refund_receiver"`
 }
 
 // SafeTransaction represents a Gnosis Safe transaction
@@ -82,6 +88,14 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 		tx.Value = big.NewInt(0)
 		tx.Data = tx.Nested.Data
 		tx.SafeVersion = tx.Nested.SafeVersion
+
+		// The parent has its own gas and refund configuration; inheriting the child's would
+		// hash and display a refund the parent transaction does not pay.
+		tx.SafeTxGas = tx.Nested.SafeTxGas
+		tx.BaseGas = tx.Nested.BaseGas
+		tx.GasPrice = tx.Nested.GasPrice
+		tx.GasToken = tx.Nested.GasToken
+		tx.RefundReceiver = tx.Nested.RefundReceiver
 	}
 
 	// Verify the main transaction
@@ -90,10 +104,59 @@ func VerifyTransaction(tx SafeTransaction, options VerifyOptions) (*Verification
 		return nil, err
 	}
 
+	if nestedResult != nil {
+		if err := checkApprovesChild(result.Call, nestedResult); err != nil {
+			return nil, err
+		}
+	}
+
 	// Attach nested result if it exists
 	result.NestedResult = nestedResult
 
 	return result, nil
+}
+
+// approveHashCall is one approveHash call found in a parent transaction's call tree.
+type approveHashCall struct {
+	target string
+	hash   string
+}
+
+// checkApprovesChild confirms every approveHash call in the parent transaction is the one
+// child approval we display, matched on target Safe as well as hash. Matching the hash
+// alone lets a decoy subcall carry the hash we print while the call that reaches the child
+// Safe approves another, and an extra approval is one this output has no room to show.
+func checkApprovesChild(parentCall CallData, child *VerificationResult) error {
+	approvals := collectApproveHashCalls(parentCall)
+	if len(approvals) == 0 {
+		return fmt.Errorf("parent transaction does not call approveHash, so it cannot approve child transaction %s", child.ApproveHash)
+	}
+	for _, approval := range approvals {
+		if !strings.EqualFold(approval.target, child.Transaction.Safe) || !strings.EqualFold(approval.hash, child.ApproveHash) {
+			return fmt.Errorf("parent transaction calls approveHash(%q) on %s, but the only child transaction shown is %s on %s",
+				approval.hash, approval.target, child.ApproveHash, child.Transaction.Safe)
+		}
+	}
+	return nil
+}
+
+// collectApproveHashCalls returns every approveHash call in a call tree, including the
+// multicall subcalls superchain-ops wraps them in.
+func collectApproveHashCalls(call CallData) []approveHashCall {
+	var calls []approveHashCall
+	if call.FunctionName == "approveHash" {
+		// A call whose argument we could not decode is still recorded, so undecodable
+		// calldata cannot smuggle an approval past the check above.
+		hash := ""
+		if parsed, ok := call.ParsedData.(map[string]interface{}); ok {
+			hash, _ = parsed["hashToApprove"].(string)
+		}
+		calls = append(calls, approveHashCall{target: call.Target, hash: hash})
+	}
+	for _, subcall := range call.SubCalls {
+		calls = append(calls, collectApproveHashCalls(subcall)...)
+	}
+	return calls
 }
 
 // verifyTransactionInternal contains the core verification logic
@@ -101,6 +164,10 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 	// Strip chain prefix from the target address (e.g., "oeth:", "eth:")
 	tx.To = StripChainPrefix(tx.To)
 	tx.Safe = StripChainPrefix(tx.Safe)
+
+	if err := tx.validate(); err != nil {
+		return nil, err
+	}
 
 	// Parse the transaction data
 	call, err := ParseTransactionData(tx.To, tx.Data, uint64(tx.Chain), options)
@@ -135,6 +202,47 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 	}
 
 	return result, nil
+}
+
+// validate rejects values the EIP-712 hash would otherwise silently coerce: HexToAddress
+// keeps only the last 20 bytes of an over-long address and FromHex decodes invalid or
+// odd-length calldata to something shorter, either of which hashes as a transaction other
+// than the one we display.
+func (tx SafeTransaction) validate() error {
+	addresses := []struct {
+		field, value string
+		optional     bool
+	}{
+		{"safe", tx.Safe, false},
+		{"to", tx.To, false},
+		// The Safe API omits the refund fields when they are unset, and the hash reads an
+		// absent one as the zero address.
+		{"gas_token", tx.GasToken, true},
+		{"refund_receiver", tx.RefundReceiver, true},
+	}
+	for _, address := range addresses {
+		if address.optional && address.value == "" {
+			continue
+		}
+		if err := validateAddress(address.field, address.value); err != nil {
+			return err
+		}
+	}
+	return validateHex("data", tx.Data)
+}
+
+func validateAddress(field, value string) error {
+	if len(strings.TrimPrefix(value, "0x")) != 40 {
+		return fmt.Errorf("%s must be a 20-byte hex address, got %q", field, value)
+	}
+	return validateHex(field, value)
+}
+
+func validateHex(field, value string) error {
+	if _, err := hex.DecodeString(strings.TrimPrefix(value, "0x")); err != nil {
+		return fmt.Errorf("%s must be hex, got %q: %w", field, value, err)
+	}
+	return nil
 }
 
 // stripChainPrefix removes chain prefixes like "oeth:", "eth:", etc. from addresses
