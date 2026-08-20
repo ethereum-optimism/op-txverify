@@ -8,11 +8,8 @@
   publish = "site"
   command = "./scripts/build-site.sh"
 
-  # Post-processing is the pass that performs snippet injection, and nothing here needs any of it:
-  # scripts/build-site.sh publishes exactly the files it names. The Netlify Drawer is a separate
-  # dashboard toggle that no config key overrides, so index.html ends without a closing body tag -
-  # the point both it and snippet injection insert at. Two independent controls, because a config
-  # key Netlify stops honouring would fail silently.
+  # Post-processing performs snippet injection, and build-site.sh publishes exactly the files it
+  # names, so none of it is wanted. The second control is in index.html; see the comment there.
   [build.processing]
     skip_processing = true
 
@@ -34,9 +31,8 @@
     # 16.4+: older iOS ignores the unknown source expression, leaving 'self', and instantiation
     # fails. connect-src needs 'self' because the wasm module and build-info.json are loaded with
     # fetch(), which connect-src governs, and lists the JSON-RPC endpoints used for contract checks.
-    # script-src cannot be narrower than 'self': a source expression needs a host, so there is no
-    # way to allowlist our four script paths and refuse a same-origin one the platform injected.
-    # That is why the injection point is removed from the HTML instead.
+    # script-src cannot be narrower than 'self' - a source expression needs a host - which is what
+    # the comment in index.html is about.
     Content-Security-Policy = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.safe.global https://ethereum-rpc.publicnode.com https://optimism-rpc.publicnode.com https://base-rpc.publicnode.com https://ethereum-sepolia-rpc.publicnode.com; form-action 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     # Without HSTS a single plaintext navigation lets an on-path attacker serve a substituted
     # app.js with no CSP at all, which defeats the header above. max-age is 31536000 because

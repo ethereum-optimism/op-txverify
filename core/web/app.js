@@ -294,9 +294,8 @@ function assertTxHash(name, raw) {
     return String(raw).toLowerCase();
 }
 
-// The fields a response carries are only ever a claim about which transaction they belong to.
-// Every hashed field can be altered into a self-consistent transaction with a different hash, so a
-// response that answers a request for one hash with the fields of another must not pass.
+// A response that answers a request for one hash with another transaction's fields must not pass.
+// Why that is not paranoia: core.SafeTransaction.SafeTxHash.
 function assertAnsweredHash(what, requested, returned) {
     if (assertTxHash(`${what} requested hash`, requested) !== assertTxHash(`${what} safeTxHash`, returned)) {
         throw new Error(

@@ -29,8 +29,6 @@ func TestParseInt(t *testing.T) {
 	}
 }
 
-// The /result endpoint decides which transaction this tool goes on to verify, so it must not be
-// reachable from anywhere but this machine.
 func TestListenLoopback_BindsOnlyLoopback(t *testing.T) {
 	listeners, err := listenLoopback(0)
 	if err != nil {

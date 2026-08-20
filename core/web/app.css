@@ -363,10 +363,8 @@ button:disabled {
     color: #999;
 }
 
-/* Netlify's deploy-preview widget positions itself with an inline style attribute, which style-src
-   blocks, leaving it as a stray band in the page flow. index.html no longer carries the tag it
-   inserts before, so this should never render - it stays as the third control on that path, behind
-   the missing tag and skip_processing, and is inert on production either way. */
+/* Netlify's deploy-preview widget cannot reach the page any more (see index.html), and could not
+   position itself without an inline style if it did. Kept as the last line of that defence. */
 [data-netlify-deploy-id] {
     display: none;
 }

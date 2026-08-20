@@ -33,9 +33,7 @@ if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
-# Netlify's Drawer and its snippet injection both insert a <script> immediately before the closing
-# body tag, and a same-origin script is indistinguishable from ours to `script-src 'self'`. Leaving
-# the tag out is the only control this repo holds over that, so it must not come back by accident.
+# The absent closing body tag is a security control; index.html says why. Keep it absent.
 for f in $FILES; do
   case "$f" in
   *.html)

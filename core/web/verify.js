@@ -53,16 +53,14 @@ const VERIFY_DOM = {
     build: document.getElementById('buildInfo')
 };
 
-// The text the page loads with, restored whenever a result stops describing what is on screen.
 const IDLE_STATUS = DOM.status.textContent;
 
 // A displayed result is a statement about the inputs it was produced from. Editing any of them
 // makes it a statement about a transaction nobody asked about, and a run still in flight would
-// otherwise write its result under inputs it never read. Both are handled by one counter: a run
-// owns the display only while it is still the current generation.
+// write its result under inputs it never read. One counter covers both: a run owns the display
+// only while it is still the current generation.
 let generation = 0;
 
-// Every input that feeds a hash, so nothing shown can survive a change to what produced it.
 const VERIFY_INPUTS = [DOM.txInput, VERIFY_DOM.network, VERIFY_DOM.safe, VERIFY_DOM.nonce];
 
 function invalidateResults() {
@@ -268,9 +266,8 @@ async function runVerify(run) {
         throw new Error(`Fetched a transaction on chain ${tx.chain}, expected ${chainId}`);
     }
 
-    // fetchTransactionData bound the fields to the hash it asked for; this is the same statement
-    // made against the hash this page was given, so neither the service nor a rewritten response
-    // can move the transaction under the request.
+    // fetchTransactionData held the response to the hash it asked for; this holds it to the hash
+    // this page was given, so the two cannot drift apart.
     const ledgerHash = tx.nested ? tx.nested.safe_tx_hash : tx.safe_tx_hash;
     if (ledgerHash !== txHash.toLowerCase()) {
         throw new Error(`Verified ${ledgerHash} but ${txHash} was requested`);
@@ -291,9 +288,8 @@ async function runVerify(run) {
     let mismatch = false;
 
     for (const check of out.contractChecks) {
-        // The wasm recomputed the hash from the fields it was handed. Requiring it to equal the
-        // hash those fields were fetched under is what makes the pair below the pair the signer
-        // asked about rather than a consistent pair belonging to some other transaction.
+        // Requiring the recomputation to equal the hash the fields were fetched under is what
+        // makes the pair below the signer's, not a consistent pair from another transaction.
         const expected = check.label === 'ledger' ? ledgerHash : tx.safe_tx_hash;
         if (check.approveHash.toLowerCase() !== expected) {
             throw new Error(
