@@ -65,19 +65,6 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 		targetDisplay = fmt.Sprintf("%s (%s 🔍)", tx.To, targetContractInfo.Name)
 	}
 
-	// Parse out the operation being performed
-	var operation string
-	if tx.Operation == 0 {
-		operation = "CALL"
-	} else if tx.Operation == 1 {
-		operation = "DELEGATECALL"
-	} else {
-		operation = "UNKNOWN OPERATION ❌"
-	}
-
-	// Parse out the value being sent
-	value := core.ParseDecimals(tx.Value, 18)
-
 	// Parse out network
 	network, isKnownNetwork := core.ChainNames[uint64(tx.Chain)]
 	chainDisplay := fmt.Sprintf("%d", int(tx.Chain))
@@ -88,9 +75,8 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	fmt.Fprintf(w, "%s: %s\n", bold("Safe"), safeDisplay)
 	fmt.Fprintf(w, "%s: %s\n", bold("Chain ID"), chainDisplay)
 	fmt.Fprintf(w, "%s: %s\n", bold("Target"), targetDisplay)
-	fmt.Fprintf(w, "%s: %s\n", bold("ETH Value"), value)
 	fmt.Fprintf(w, "%s: %d\n", bold("Nonce"), tx.Nonce)
-	fmt.Fprintf(w, "%s: %s\n", bold("Operation"), operation)
+	printHashedFields(w, tx, bold, warning)
 	fmt.Fprintln(w, "")
 
 	// Check if this is a nested transaction
@@ -118,6 +104,7 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 		fmt.Fprintf(w, "%s: %s\n", bold("Child Safe"), nestedSafeDisplay)
 		fmt.Fprintf(w, "%s: %d\n", bold("Child Nonce"), nestedTx.Nonce)
 		fmt.Fprintf(w, "%s: %s\n", bold("Child Hash"), result.NestedResult.ApproveHash)
+		printHashedFields(w, nestedTx, bold, warning)
 		fmt.Fprintln(w, "")
 
 		// Use the existing function to print the child call details
@@ -150,6 +137,40 @@ func FormatTerminal(result *core.VerificationResult, w io.Writer) error {
 	fmt.Fprintln(w, "")
 
 	return nil
+}
+
+// printHashedFields prints the transaction fields the message hash covers beyond the Safe,
+// the target and the nonce. The parent and the child each print their own, so no hashed
+// value is missing from the screen or shown under the wrong transaction.
+func printHashedFields(w io.Writer, tx core.SafeTransaction, bold, warning func(a ...interface{}) string) {
+	fmt.Fprintf(w, "%s: %s\n", bold("ETH Value"), core.ParseDecimals(tx.Value, 18))
+	fmt.Fprintf(w, "%s: %s\n", bold("Operation"), operationName(tx.Operation))
+	fmt.Fprintf(w, "%s: %d\n", bold("Safe Tx Gas"), tx.SafeTxGas)
+	fmt.Fprintf(w, "%s: %d\n", bold("Base Gas"), tx.BaseGas)
+	fmt.Fprintf(w, "%s: %d\n", bold("Gas Price"), tx.GasPrice)
+	// Printed as the address the hash reads, since an omitted field hashes as the zero one.
+	fmt.Fprintf(w, "%s: %s\n", bold("Gas Token"), common.HexToAddress(tx.GasToken).Hex())
+	fmt.Fprintf(w, "%s: %s\n", bold("Refund Receiver"), common.HexToAddress(tx.RefundReceiver).Hex())
+
+	// A refund configuration is how a Safe gets drained by whoever executes the
+	// transaction, so a non-zero one gets its own warning rather than hiding in a column
+	// of zeros.
+	if tx.GasPrice != 0 || common.HexToAddress(tx.GasToken) != (common.Address{}) || common.HexToAddress(tx.RefundReceiver) != (common.Address{}) {
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, warning("⚠️  WARNING: THIS TRANSACTION PAYS A GAS REFUND FROM THE SAFE  ⚠️"))
+	}
+}
+
+// operationName names the call type a Safe transaction's operation field selects.
+func operationName(operation int) string {
+	switch operation {
+	case 0:
+		return "CALL"
+	case 1:
+		return "DELEGATECALL"
+	default:
+		return "UNKNOWN OPERATION ❌"
+	}
 }
 
 // printCallDetails recursively prints the details of a call and any subcalls.
