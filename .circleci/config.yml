@@ -7,6 +7,13 @@ executors:
     resource_class: medium+
     environment:
       GOFLAGS: -mod=readonly
+  # The plain cimg/go image ships no Node, which the page's tests need.
+  go-node-executor:
+    docker:
+      - image: cimg/go:1.26.6-node
+    resource_class: medium+
+    environment:
+      GOFLAGS: -mod=readonly
 
 commands:
   setup-golangci:
@@ -76,12 +83,15 @@ jobs:
           path: coverage.out
 
   build-site:
-    executor: go-executor
+    executor: go-node-executor
     steps:
       - checkout
       - run:
           name: Build site
           command: ./scripts/build-site.sh
+      - run:
+          name: Test the page's pure functions
+          command: node scripts/web-test.mjs
       - run:
           name: Assert published allowlist
           command: |

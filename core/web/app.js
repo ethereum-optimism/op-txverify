@@ -45,7 +45,8 @@ const state = {
     transferId: null,
     qrCodeImages: [],
     displayedChunks: new Set(),
-    directTransactionData: null
+    directTransactionData: null,
+    directTransactionJson: null
 };
 
 // Check for transaction data in URL parameters when page loads
@@ -59,10 +60,14 @@ function checkUrlForTransactionData() {
             const decodedData = compressedTxData
                 ? decodeCompressedTransactionData(compressedTxData)
                 : atob(txData);
-            const parsedData = JSON.parse(decodedData);
-            
-            // Store the transaction data
-            state.directTransactionData = parsedData;
+            // The decoded text is kept verbatim and forwarded to the QR encoder unchanged. Parsing
+            // and re-serializing would round any integer above 2^53-1 - JSON.parse cannot hold one -
+            // so the QR codes would carry a value the link never did. op-txverify validates the
+            // fields when it decodes them, which is the right place for it.
+            state.directTransactionJson = decodedData;
+            // Parsed only to reject malformed input early and to flag that a payload was supplied.
+            // Do NOT read numeric fields off this: they may be rounded.
+            state.directTransactionData = JSON.parse(decodedData);
             
             // Update UI to show we have direct transaction data
             DOM.status.textContent = "Transaction data found in URL";
@@ -430,9 +435,11 @@ function displayQRCode(index) {
  */
 
 // Generate QR codes from transaction data
+// transactionData is either the verbatim JSON text of a supplied payload or an object built from the
+// Safe API. Forwarding the text unchanged keeps a supplied payload byte-identical through the QR
+// codes, so the air-gapped device verifies what the link carried rather than a re-serialization.
 async function generateQRCodes(transactionData) {
-    // Convert transaction data to JSON string
-    const jsonData = JSON.stringify(transactionData);
+    const jsonData = typeof transactionData === 'string' ? transactionData : JSON.stringify(transactionData);
     
     // Compress data using fflate
     const jsonBytes = fflate.strToU8(jsonData);
@@ -558,8 +565,8 @@ DOM.startBtn.addEventListener('click', async function() {
         let transactionData;
         
         // If we have direct transaction data from URL parameter, use it
-        if (state.directTransactionData) {
-            transactionData = state.directTransactionData;
+        if (state.directTransactionJson) {
+            transactionData = state.directTransactionJson;
             DOM.status.textContent = "Using transaction data from URL...";
         } else {
             // Otherwise, proceed with normal flow

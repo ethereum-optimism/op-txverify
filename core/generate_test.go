@@ -49,28 +49,51 @@ func TestSelectQueuedTransaction(t *testing.T) {
 	})
 }
 
+// Asserting the exact URL matters as much as the chain id: if a network were mapped to another
+// network's tx service, a non-empty check would still pass while the CLI queried the wrong chain.
 func TestGetNetworkInfo(t *testing.T) {
-	url, chain, err := getNetworkInfo("ethereum")
-	if err != nil {
-		t.Fatalf("ethereum: unexpected error: %v", err)
-	}
-	if url == "" || chain != MainnetChainID {
-		t.Fatalf("ethereum: got (%q, %d), want (non-empty, %d)", url, chain, MainnetChainID)
-	}
-
-	url, chain, err = getNetworkInfo("op")
-	if err != nil {
-		t.Fatalf("op: unexpected error: %v", err)
-	}
-	if url == "" || chain != OPMainnetChainID {
-		t.Fatalf("op: got (%q, %d), want (non-empty, %d)", url, chain, OPMainnetChainID)
+	testCases := []struct {
+		network string
+		url     string
+		chainID uint64
+	}{
+		{"ethereum", "https://api.safe.global/tx-service/eth", MainnetChainID},
+		{"op", "https://api.safe.global/tx-service/oeth", OPMainnetChainID},
+		{"optimism", "https://api.safe.global/tx-service/oeth", OPMainnetChainID},
+		{"base", "https://api.safe.global/tx-service/base", BaseMainnetChainID},
+		{"sepolia", "https://api.safe.global/tx-service/sep", SepoliaChainID},
+		{"ETHEREUM", "https://api.safe.global/tx-service/eth", MainnetChainID},
 	}
 
-	url, chain, err = getNetworkInfo("base")
-	if err != nil {
-		t.Fatalf("base: unexpected error: %v", err)
+	for _, tc := range testCases {
+		t.Run(tc.network, func(t *testing.T) {
+			url, chain, err := getNetworkInfo(tc.network)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if url != tc.url {
+				t.Errorf("URL mismatch. Got %q, want %q", url, tc.url)
+			}
+			if chain != tc.chainID {
+				t.Errorf("chain id mismatch. Got %d, want %d", chain, tc.chainID)
+			}
+		})
 	}
-	if url == "" || chain != BaseMainnetChainID {
-		t.Fatalf("base: got (%q, %d), want (non-empty, %d)", url, chain, BaseMainnetChainID)
+
+	// The 4 distinct networks must not share a tx service, so a copy-paste slip is caught.
+	seen := map[string]string{}
+	for _, network := range []string{"ethereum", "op", "base", "sepolia"} {
+		url, _, err := getNetworkInfo(network)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", network, err)
+		}
+		if prior, ok := seen[url]; ok {
+			t.Errorf("%s and %s share the tx service %q", prior, network, url)
+		}
+		seen[url] = network
+	}
+
+	if _, _, err := getNetworkInfo("opsep"); err == nil {
+		t.Error("expected an error for an unsupported network")
 	}
 }
