@@ -80,6 +80,13 @@ const rejection = (fn) => { try { fn(); return 'no error thrown'; } catch (error
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
 
+// At a 390px viewport the transaction input has room for 19 monospace characters beside the paste
+// button. Longer placeholder text is clipped before the signer can read it.
+const page = readFileSync(join(web, 'index.html'), 'utf8');
+const txPlaceholder = page.match(/id="txInput"[^>]*placeholder="([^"]*)"/)[1];
+report('the transaction placeholder fits on a phone', txPlaceholder.length <= 19,
+  `${txPlaceholder.length} characters`, 'at most 19 characters');
+
 // A FastLZ control byte below 32 is a literal run of control+1 bytes, so runs of at most 32 bytes
 // encode any text as itself. Enough to exercise the ?txz= path without a compressor.
 const fastLZLiterals = (text) => {
