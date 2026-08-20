@@ -106,9 +106,10 @@ func (t *SafeTransaction) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ParseWei parses a base-10 wei amount, rejecting anything outside the uint256 range. The range
-// check matters because abi.Arguments.Pack reduces modulo 2^256 rather than erroring, so a negative
-// or oversized value would print one number in the decode and hash a different one.
+// ParseWei parses a base-10 wei amount, rejecting anything outside the uint256 range. The upper
+// bound is what matters: abi.Arguments.Pack reduces a value at or above 2^256 modulo 2^256 instead
+// of erroring, so it would print one number in the decode and hash another. Pack does reject a
+// negative, so that bound only turns a late failure into an early, clearer one.
 func ParseWei(raw string) (*big.Int, error) {
 	value, ok := new(big.Int).SetString(raw, 10)
 	if !ok {

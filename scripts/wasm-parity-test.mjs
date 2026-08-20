@@ -92,7 +92,9 @@ const nestedTx = {
     safe: "0x5a0Aae59D09fccBdDb6C6CcEB07B7279367C3d2A",
     safe_version: "1.3.0",
     nonce: 9,
-    data: "0xd4d9bdcd493ad64b8f788ed9808c7bf527a10a017d9f263bb7889868ce18b451d685762d",
+    // Must approve the child's own hash: verification refuses a parent whose approveHash argument
+    // is not the child transaction being displayed.
+    data: "0xd4d9bdcd35004412c6a0f133f101f892afde6fb164d75a62c0627fa3824272ca2bad9346",
     operation: 0,
     to: SAFE,
   },
