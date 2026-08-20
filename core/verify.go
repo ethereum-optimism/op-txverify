@@ -65,21 +65,22 @@ func (t *SafeTransaction) UnmarshalJSON(data []byte) error {
 
 	raw := string(aux.Value)
 	if raw == "" || raw == "null" {
-		// Zero rather than nil: a nil Value panics when the struct hash is ABI-packed.
+		// Zero rather than nil: a nil Value panics when the struct hash is ABI-packed. Do not
+		// return here - omitted values are supported for offline and compressed-URL payloads, so
+		// returning early would skip every check below for exactly those inputs.
 		t.Value = big.NewInt(0)
-		return nil
-	}
-	if raw[0] == '"' {
-		if err := json.Unmarshal(aux.Value, &raw); err != nil {
-			return fmt.Errorf("invalid value: %w", err)
+	} else {
+		if raw[0] == '"' {
+			if err := json.Unmarshal(aux.Value, &raw); err != nil {
+				return fmt.Errorf("invalid value: %w", err)
+			}
 		}
+		value, err := ParseWei(raw)
+		if err != nil {
+			return err
+		}
+		t.Value = value
 	}
-
-	value, err := ParseWei(raw)
-	if err != nil {
-		return err
-	}
-	t.Value = value
 
 	// The remaining uint256 fields are decoded into int, so encoding/json already rejects anything
 	// beyond int64. Negatives and an out-of-range operation still get through, and both would be
