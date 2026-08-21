@@ -119,7 +119,7 @@ func TestContractChecksDescribeEmptyCalldata(t *testing.T) {
 			assertFields(t, call, map[string]any{
 				"functionName": tc.functionName, "target": testRecipient, "operation": "CALL",
 			})
-			args, _ := call["arguments"].([]any)
+			args := requireSlice(t, call["arguments"], "call.arguments")
 			if len(args) != tc.wantArgs {
 				t.Fatalf("len(call.arguments) = %d, want %d", len(args), tc.wantArgs)
 			}
@@ -149,6 +149,9 @@ func TestContractChecksDescribeUnknownCall(t *testing.T) {
 	})
 	if _, ok := call["signature"]; ok {
 		t.Fatal("unknown call unexpectedly has a signature")
+	}
+	if args := requireSlice(t, call["arguments"], "call.arguments"); len(args) != 0 {
+		t.Fatalf("len(call.arguments) = %d, want 0", len(args))
 	}
 }
 
@@ -185,6 +188,9 @@ func TestContractChecksTreatMalformedKnownCallAsUnknown(t *testing.T) {
 	})
 	if _, ok := call["signature"]; ok {
 		t.Fatal("malformed known call unexpectedly has a trusted signature")
+	}
+	if args := requireSlice(t, call["arguments"], "call.arguments"); len(args) != 0 {
+		t.Fatalf("len(call.arguments) = %d, want 0", len(args))
 	}
 }
 

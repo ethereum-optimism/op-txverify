@@ -217,8 +217,7 @@ function normalizeCall(call) {
         : 'Unknown function';
     const operationValid = source.operation === 'CALL' || source.operation === 'DELEGATECALL';
     const targetValid = nonemptyString(source.target);
-    const argumentsValid = source.arguments === undefined ||
-        (Array.isArray(source.arguments) && source.arguments.every(isArgument));
+    const argumentsValid = Array.isArray(source.arguments) && source.arguments.every(isArgument);
     const callsValid = source.calls === undefined || Array.isArray(source.calls);
     const signatureRequired = !['Unknown function', 'Send native ETH', 'No calldata']
         .includes(functionName);
@@ -236,11 +235,11 @@ function normalizeCall(call) {
         target: targetValid ? source.target : '(missing target)',
         operation: operationValid ? source.operation : '(unknown)',
         functionName: malformed ? 'Unknown function' : functionName,
+        arguments: argumentsValid ? source.arguments : [],
         calls: callsValid && Array.isArray(source.calls) ? source.calls.map(normalizeCall) : [],
     };
     if (nonemptyString(source.targetLabel)) normalized.targetLabel = source.targetLabel;
     if (!malformed && nonemptyString(source.signature)) normalized.signature = source.signature;
-    if (!malformed && Array.isArray(source.arguments)) normalized.arguments = source.arguments;
     if (normalized.functionName === 'Unknown function') {
         normalized.selector = selector;
         normalized.rawCalldata = rawCalldata;
@@ -351,6 +350,11 @@ function renderSafeFields(fields) {
         definitionRow(`<code>${esc(name)}</code>`, renderValue(fields[name]), false, true)).join('')}</dl>`;
 }
 
+function renderRawDetails(fields) {
+    return '<details class="verify-raw" open><summary>Raw transaction fields</summary>' +
+        renderSafeFields(fields) + '</details>';
+}
+
 function hashRow(label, contractValue, localValue) {
     if (localValue === undefined) {
         return definitionRow(label, `<code>${esc(contractValue)}</code>`);
@@ -391,8 +395,7 @@ function renderCheck(check, onchain, chainId, agree, normalized = false) {
 
     html += `<h3>${check.label === 'ledger' ? 'What you are signing' : 'What is being approved'}</h3>`;
     html += renderCall(call, [], true);
-    html += '<details class="verify-raw" open><summary>Raw transaction fields</summary>' +
-        renderSafeFields(check.safeFields) + '</details>';
+    html += renderRawDetails(check.safeFields);
 
     const explorer = EXPLORERS[chainId];
     if (explorer) {

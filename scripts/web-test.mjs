@@ -64,7 +64,9 @@ const exported = [
 // verify.js is a second classic script that reads app.js's globals, so both are evaluated together.
 const source = readFileSync(join(web, 'app.js'), 'utf8') + '\n' + readFileSync(join(web, 'verify.js'), 'utf8');
 const fns = new Function(...Object.keys(globals), `${source}\nreturn { ${exported.join(', ')}, ` +
-  'renderCheck: typeof renderCheck === \'function\' ? renderCheck : undefined };')(
+  'renderCheck: typeof renderCheck === \'function\' ? renderCheck : undefined, ' +
+  'renderAction: typeof renderCall === \'function\' ? renderCall : undefined, ' +
+  'renderRawDetails: typeof renderRawDetails === \'function\' ? renderRawDetails : undefined };')(
   ...Object.values(globals)
 );
 
@@ -82,13 +84,12 @@ const checkMessage = (name, got, want) =>
 const checkContains = (name, got, parts) =>
   report(name, parts.every(part => String(got).includes(part)), got, `HTML containing: ${parts.join(', ')}`);
 const rejection = (fn) => { try { fn(); return 'no error thrown'; } catch (error) { return error.message; } };
-const elementContents = (html, tag, className) => {
-  const classPart = className ? `[^>]*class="[^"]*${className}[^"]*"` : '[^>]*';
-  return String(html).match(new RegExp(`<${tag}${classPart}[^>]*>([\\s\\S]*?)</${tag}>`))?.[1] ?? '';
+const checkOrder = (name, html, parts) => {
+  const positions = parts.map(part => String(html).indexOf(part));
+  report(name, positions.every((position, index) =>
+    position >= 0 && (index === 0 || position > positions[index - 1])),
+  positions.join(', '), `increasing positions for: ${parts.join(', ')}`);
 };
-const definitionLabels = (html, className) =>
-  [...elementContents(html, 'dl', className).matchAll(/<dt>(?:<code>)?([^<]+)(?:<\/code>)?<\/dt>/g)]
-    .map(match => match[1]);
 const contrastRatio = (foreground, background) => {
   const luminance = (hex) => {
     const channels = hex.match(/[0-9a-f]{2}/gi).map(channel => parseInt(channel, 16) / 255)
@@ -399,22 +400,24 @@ const render = (checkValue = rendererCheck(), onchain = {
 
 report('production check renderer is available', typeof fns.renderCheck === 'function',
   typeof fns.renderCheck, 'function');
+report('production action component renderer is available', typeof fns.renderAction === 'function',
+  typeof fns.renderAction, 'function');
+report('production raw-details component renderer is available', typeof fns.renderRawDetails === 'function',
+  typeof fns.renderRawDetails, 'function');
 
 const friendlyHTML = render();
-checkContains('known calls render a readable EtherFi action with exact local arguments', friendlyHTML, [
+const friendlyAction = fns.renderAction?.(rendererCheck().call) || '';
+checkContains('EtherFi labels and values come from the production action component', friendlyAction, [
   '<article', '<dl', 'ETHERFI SPOKE (PROXY)', ETHERFI_SPOKE, 'withdraw',
   'withdraw(uint256,uint256,address)', 'CALL', 'reserveId', '>0<', 'amount', '5000057',
   'onBehalfOf', INNER_SAFE,
 ]);
 report('known calls do not fall back to preformatted Go-map text', !friendlyHTML.includes('verify-decode') &&
   !friendlyHTML.includes('<pre'), friendlyHTML, 'semantic HTML without verify-decode or pre');
-const friendlyAction = elementContents(friendlyHTML, 'article', 'verify-action');
-checkContains('known action details are contained by the semantic action card', friendlyAction,
-  ['<h4>', '<dl class="verify-fields">', 'Target', 'Signature', 'Operation', 'Arguments']);
 
 const recursiveHTML = render(rendererCheck({ call: {
   target: `0x${'c'.repeat(40)}`, targetLabel: 'Batch caller', functionName: 'aggregate3',
-  signature: 'aggregate3((address,bool,bytes)[])', operation: 'DELEGATECALL', calls: [
+  signature: 'aggregate3((address,bool,bytes)[])', operation: 'DELEGATECALL', arguments: [], calls: [
     rendererCheck().call,
     {
       target: `0x${'d'.repeat(40)}`, functionName: 'setConfig', signature: 'setConfig((uint256,bool)[])',
@@ -423,7 +426,7 @@ const recursiveHTML = render(rendererCheck({ call: {
         { name: 'enabled', type: 'bool', value: true },
       ]] }], calls: [{
         target: `0x${'e'.repeat(40)}`, functionName: 'pause', signature: 'pause()',
-        operation: 'DELEGATECALL',
+        operation: 'DELEGATECALL', arguments: [],
       }],
     },
   ],
@@ -447,22 +450,21 @@ report('every ABI and label string is escaped by the production renderer',
 const unknownRaw = '0xdeadbeef00000001';
 const unknownHTML = render(rendererCheck({ call: {
   target: ETHERFI_SPOKE, functionName: 'Unknown function', operation: 'CALL',
-  selector: '0xdeadbeef', rawCalldata: unknownRaw,
+  selector: '0xdeadbeef', rawCalldata: unknownRaw, arguments: [],
 } }));
 checkContains('unknown calldata stays visible and fails intent verification clearly', unknownHTML, [
   'Unknown function', ETHERFI_SPOKE, '0xdeadbeef', unknownRaw,
   'hashes may agree', 'not established', 'DO NOT SIGN', 'independently decoded',
 ]);
-const unknownDetails = elementContents(unknownHTML, 'details', 'verify-raw');
-report('unknown warning is outside raw transaction details',
-  unknownHTML.indexOf('verify-intent-warning') < unknownHTML.indexOf('<details') &&
-    !unknownDetails.includes('verify-intent-warning'), unknownHTML,
-  'warning before and outside Raw transaction fields');
+const friendlyRawDetails = fns.renderRawDetails?.(rendererCheck().safeFields) || '';
+report('unknown warning is not part of the production raw-details component',
+  !friendlyRawDetails.includes('verify-intent-warning'), friendlyRawDetails,
+  'Raw transaction fields without an intent warning');
 
 const malformedKnownRaw = '0x13af4035'; // setOwner(address), missing the address argument.
 const malformedKnownHTML = render(rendererCheck({ call: {
   target: ETHERFI_SPOKE, functionName: 'Unknown function', operation: 'CALL',
-  selector: malformedKnownRaw, rawCalldata: malformedKnownRaw,
+  selector: malformedKnownRaw, rawCalldata: malformedKnownRaw, arguments: [],
 } }));
 checkContains('known selector with truncated arguments uses the unknown warning renderer', malformedKnownHTML,
   ['Unknown function', malformedKnownRaw, 'DO NOT SIGN', 'independently decoded']);
@@ -474,22 +476,23 @@ for (const [name, call, visible] of [
       { name: 'value', type: 'uint256', value: '9007199254740993' },
     ],
   }, ['Send native ETH', 'recipient', INNER_SAFE, 'value', '9007199254740993']],
-  ['no calldata', { target: INNER_SAFE, functionName: 'No calldata', operation: 'CALL' },
+  ['no calldata', { target: INNER_SAFE, functionName: 'No calldata', operation: 'CALL', arguments: [] },
     ['No calldata', INNER_SAFE, 'CALL']],
 ]) {
   checkContains(`${name} has a clear signer-visible presentation`,
     render(rendererCheck({ call })), visible);
 }
 
-checkContains('exact Safe fields stay in an open collapsible raw section', friendlyHTML, [
+checkContains('Safe fields and calldata come from the production raw-details component', friendlyRawDetails, [
   '<details class="verify-raw" open>', '<summary>Raw transaction fields</summary>', '<code>to</code>', ETHERFI_SPOKE,
   '<code>value</code>', '<code>data</code>', '0x0ad58d2f00', '<code>operation</code>',
   '<code>safeTxGas</code>', '<code>baseGas</code>', '<code>gasPrice</code>', '<code>gasToken</code>',
   '<code>refundReceiver</code>', '<code>nonce</code>',
 ]);
-check('agreeing hash rows match the Safe UI order inside the hash list',
-  definitionLabels(friendlyHTML, 'verify-hashes').slice(0, 3).join(','),
-  'Domain hash,Message hash,safeTxHash');
+checkOrder('assembled check keeps hashes, action, then raw details in order', friendlyHTML, [
+  '<dt>Domain hash</dt>', '<dt>Message hash</dt>', '<dt>safeTxHash</dt>', friendlyAction,
+  friendlyRawDetails,
+]);
 
 const mismatchHTML = render(rendererCheck(), {
   domainHash: `0x${'6'.repeat(64)}`, messageHash: `0x${'7'.repeat(64)}`,
@@ -497,15 +500,10 @@ const mismatchHTML = render(rendererCheck(), {
 checkContains('hash mismatches remain DO NOT SIGN and show both sources', mismatchHTML, [
   'DO NOT SIGN', 'Safe contract', 'Local recomputation', LOCAL_DOMAIN_HASH, LOCAL_MESSAGE_HASH,
 ]);
-check('mismatching hash rows keep Safe UI order inside the hash list',
-  definitionLabels(mismatchHTML, 'verify-hashes').slice(0, 3).join(','),
-  'Domain hash,Message hash,safeTxHash');
-const mismatchDetails = elementContents(mismatchHTML, 'details', 'verify-raw');
-report('mismatch warning and hash rows remain outside raw transaction details',
-  mismatchHTML.indexOf('verify-intent-warning') < mismatchHTML.indexOf('verify-hashes') &&
-    mismatchHTML.indexOf('verify-hashes') < mismatchHTML.indexOf('<details') &&
-    !mismatchDetails.includes('verify-intent-warning') && !mismatchDetails.includes('verify-hashes'),
-  mismatchHTML, 'warning, hash list, then Raw transaction fields');
+checkOrder('mismatching hashes keep warning, hash rows, action, and raw details in order', mismatchHTML, [
+  '<p class="verify-intent-warning">', '<dt>Domain hash</dt>', '<dt>Message hash</dt>',
+  '<dt>safeTxHash</dt>', friendlyAction, friendlyRawDetails,
+]);
 
 const css = readFileSync(join(web, 'app.css'), 'utf8');
 const dangerText = css.match(/--verify-danger-text:\s*(#[0-9a-f]{6})/i)?.[1] ?? '#ff0420';
@@ -545,6 +543,22 @@ for (const [name, malformedCall] of [
   ['non-array nested calls', { ...rendererCheck().call, calls: {} }],
   ['malformed argument', {
     ...rendererCheck().call, arguments: [{ name: null, type: 'uint256', value: '1' }],
+  }],
+  ['known call with missing arguments', (() => {
+    const call = { ...rendererCheck().call };
+    delete call.arguments;
+    return call;
+  })()],
+  ['known call with null arguments', { ...rendererCheck().call, arguments: null }],
+  ['known call with non-array arguments', { ...rendererCheck().call, arguments: {} }],
+  ['native transfer with missing arguments', {
+    target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL',
+  }],
+  ['native transfer with null arguments', {
+    target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL', arguments: null,
+  }],
+  ['native transfer with non-array arguments', {
+    target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL', arguments: {},
   }],
 ]) {
   const result = await verifyMalformedCall(malformedCall);

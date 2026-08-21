@@ -126,6 +126,7 @@ func structuredCall(call core.CallData, value *big.Int, operation int) (map[stri
 	view := map[string]any{
 		"target":    call.Target,
 		"operation": operationName(operation),
+		"arguments": []any{},
 	}
 	if call.TargetName != "" {
 		view["targetLabel"] = call.TargetName
@@ -166,9 +167,7 @@ func structuredCall(call core.CallData, value *big.Int, operation int) (map[stri
 
 	view["functionName"] = info.Name
 	view["signature"] = info.Signature
-	if len(decoded) > 0 {
-		view["arguments"] = decoded
-	}
+	view["arguments"] = decoded
 	return addSubcalls(view, call.SubCalls)
 }
 
