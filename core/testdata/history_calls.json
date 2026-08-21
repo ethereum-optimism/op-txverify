@@ -499,9 +499,9 @@
     "sourceURL": "https://safe-transaction-optimism.safe.global/api/v1/safes/0x4928B8F2399281140DBD8Ab9E4D12ecA9365CA6C/multisig-transactions/",
     "calldata": "0x0ad58d2f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004c4b790000000000000000000000004928b8f2399281140dbd8ab9e4d12eca9365ca6c",
     "expected": {
-      "assets": 0,
-      "receiver": "0x4928b8f2399281140dbd8ab9e4d12eca9365ca6c",
-      "shares": 5000057
+      "amount": 5000057,
+      "onBehalfOf": "0x4928b8f2399281140dbd8ab9e4d12eca9365ca6c",
+      "reserveId": 0
     }
   }
 ]

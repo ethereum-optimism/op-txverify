@@ -189,14 +189,175 @@ async function ethCall(chainId, target, calldata) {
     return parsePreimage(json.result);
 }
 
-function row(label, value, warn) {
-    return `<div class="verify-row${warn ? ' verify-warn' : ''}">` +
-        `<span class="verify-label">${esc(label)}</span>` +
-        `<span class="verify-value">${esc(value)}</span></div>`;
+function definitionRow(label, valueHTML, warn = false, labelIsHTML = false) {
+    return `<div class="verify-field${warn ? ' verify-warn' : ''}">` +
+        `<dt>${labelIsHTML ? label : esc(label)}</dt><dd>${valueHTML}</dd></div>`;
 }
 
-function block(title, text) {
-    return `<h3>${esc(title)}</h3><pre class="verify-decode">${esc(text)}</pre>`;
+function isArgument(value) {
+    return value !== null && typeof value === 'object' &&
+        Object.prototype.hasOwnProperty.call(value, 'name') &&
+        Object.prototype.hasOwnProperty.call(value, 'type') &&
+        Object.prototype.hasOwnProperty.call(value, 'value');
+}
+
+function renderArgument(argument) {
+    return definitionRow(
+        argument.name,
+        `<span class="verify-type">${esc(argument.type)}</span>${renderValue(argument.value)}`
+    );
+}
+
+function renderValue(value) {
+    if (Array.isArray(value)) {
+        return `<ol class="verify-values">${value.map(item =>
+            `<li>${isArgument(item)
+                ? `<dl class="verify-fields verify-fields-nested">${renderArgument(item)}</dl>`
+                : renderValue(item)}</li>`).join('')}</ol>`;
+    }
+    if (value !== null && typeof value === 'object') {
+        return `<dl class="verify-fields verify-fields-nested">${Object.entries(value)
+            .map(([name, item]) => definitionRow(name, renderValue(item))).join('')}</dl>`;
+    }
+    return `<code>${esc(value === null ? 'null' : value)}</code>`;
+}
+
+function renderArguments(args) {
+    if (!Array.isArray(args) || args.length === 0) return '';
+    return `<section class="verify-arguments"><h5>Arguments</h5><dl class="verify-fields">` +
+        args.map(argument => isArgument(argument)
+            ? renderArgument(argument)
+            : definitionRow('(unnamed)', renderValue(argument))).join('') + '</dl></section>';
+}
+
+function renderTarget(call) {
+    const label = call.targetLabel
+        ? `<strong class="verify-target-label">${esc(call.targetLabel)}</strong>`
+        : '';
+    return `${label}<code>${esc(call.target)}</code>`;
+}
+
+function renderCall(call, path = []) {
+    const functionName = call.functionName || 'Unknown function';
+    const operation = call.operation || '(unknown)';
+    const delegatecall = operation === 'DELEGATECALL';
+    const subject = call.targetLabel || call.target;
+    let summary;
+    if (functionName === 'Unknown function') {
+        summary = 'Unknown function';
+    } else if (functionName === 'Send native ETH') {
+        summary = `Send native ETH to ${subject}`;
+    } else if (functionName === 'No calldata') {
+        summary = `No calldata for ${subject}`;
+    } else {
+        summary = `${delegatecall ? 'DELEGATECALL' : 'Call'} ${subject}: ${functionName}`;
+    }
+
+    let html = `<article class="verify-action${delegatecall ? ' verify-action-delegate' : ''}">`;
+    if (path.length > 0) {
+        html += `<p class="verify-action-number">${esc(`Action ${path.join('.')}`)}</p>`;
+    }
+    html += `<h4>${esc(summary)}</h4><dl class="verify-fields">`;
+    html += definitionRow('Target', renderTarget(call));
+    if (call.signature) {
+        html += definitionRow('Signature', `<code>${esc(call.signature)}</code>`);
+    }
+    html += definitionRow(
+        'Operation',
+        delegatecall
+            ? `<strong class="verify-operation-warn">${esc(operation)}</strong>`
+            : `<code>${esc(operation)}</code>`
+    );
+    if (functionName === 'Unknown function') {
+        html += definitionRow('Selector', `<code>${esc(call.selector)}</code>`);
+        html += definitionRow('Raw calldata', `<code>${esc(call.rawCalldata)}</code>`);
+    }
+    html += '</dl>';
+    html += renderArguments(call.arguments);
+
+    if (functionName === 'Unknown function') {
+        html += '<p class="verify-intent-warning"><strong>DO NOT SIGN.</strong> The hashes may ' +
+            'agree, but this page has not established this transaction\'s intent. Do not sign until ' +
+            'the action is independently decoded and confirmed.</p>';
+    }
+
+    if (Array.isArray(call.calls) && call.calls.length > 0) {
+        html += '<section class="verify-subactions"><h5>Nested actions</h5>';
+        html += call.calls.map((subcall, index) =>
+            renderCall(subcall, [...path, index + 1])).join('');
+        html += '</section>';
+    }
+    return html + '</article>';
+}
+
+const SAFE_FIELD_ORDER = [
+    'to', 'value', 'data', 'operation', 'safeTxGas', 'baseGas', 'gasPrice', 'gasToken',
+    'refundReceiver', 'nonce'
+];
+
+function renderSafeFields(fields) {
+    const present = new Set(SAFE_FIELD_ORDER.filter(name =>
+        Object.prototype.hasOwnProperty.call(fields, name)));
+    const names = [...present, ...Object.keys(fields).filter(name => !present.has(name))];
+    return `<dl class="verify-fields verify-raw-fields">${names.map(name =>
+        definitionRow(`<code>${esc(name)}</code>`, renderValue(fields[name]), false, true)).join('')}</dl>`;
+}
+
+function hashRow(label, contractValue, localValue) {
+    if (localValue === undefined) {
+        return definitionRow(label, `<code>${esc(contractValue)}</code>`);
+    }
+    return definitionRow(label,
+        `<span class="verify-hash-source">Safe contract: <code>${esc(contractValue)}</code></span>` +
+        `<span class="verify-hash-source">Local recomputation: <code>${esc(localValue)}</code></span>`,
+        true
+    );
+}
+
+function renderCheck(check, onchain, chainId, agree) {
+    let html = `<section class="verify-check"><h3>${check.label === 'ledger'
+        ? 'Compare these to your device'
+        : 'The nested transaction being approved'}</h3>`;
+    html += '<dl class="verify-fields verify-context">';
+    html += definitionRow('Network', `<span>${esc(`${NETWORK_NAMES[chainId]} (chain ${chainId})`)}</span>`);
+    html += definitionRow('Safe', `<code>${esc(check.target)}</code>`);
+    html += '</dl>';
+
+    if (!agree) {
+        html += '<p class="verify-intent-warning"><strong>DO NOT SIGN.</strong> The Safe contract ' +
+            'and the local recomputation disagree.</p>';
+    }
+    html += '<dl class="verify-fields verify-hashes">';
+    html += hashRow('Domain hash', onchain.domainHash, agree ? undefined : check.domainHash);
+    html += hashRow('Message hash', onchain.messageHash, agree ? undefined : check.messageHash);
+    html += hashRow('safeTxHash', check.approveHash);
+    html += definitionRow(
+        'Source',
+        `<span>${agree
+            ? 'Safe contract and local recomputation agree'
+            : 'Safe contract and local recomputation disagree'}</span>`,
+        !agree
+    );
+    html += '</dl>';
+
+    html += `<h3>${check.label === 'ledger' ? 'What you are signing' : 'What is being approved'}</h3>`;
+    html += renderCall(check.call);
+    html += '<details class="verify-raw" open><summary>Raw transaction fields</summary>' +
+        renderSafeFields(check.safeFields) + '</details>';
+
+    const explorer = EXPLORERS[chainId];
+    if (explorer) {
+        html += '<p class="verify-note">To confirm without trusting this page, read ' +
+            `<code>encodeTransactionData</code> on <a href="${esc(explorer + check.target)}` +
+            `#readProxyContract">this Safe's contract page</a> (Read as Proxy) with the raw ` +
+            'transaction fields above.</p>';
+    }
+    return html + '</section>';
+}
+
+function hasUnknownCall(call) {
+    return call.functionName === 'Unknown function' ||
+        (Array.isArray(call.calls) && call.calls.some(hasUnknownCall));
 }
 
 // Safe 1.5.0 removed encodeTransactionData; getTransactionHash returns only the final hash, which the
@@ -282,6 +443,7 @@ async function runVerify(run) {
     status('Reading hashes from the Safe contract...');
     let html = '';
     let mismatch = false;
+    let unknownIntent = false;
 
     for (const check of out.contractChecks) {
         // Requiring the recomputation to equal the hash the fields were fetched under is what
@@ -298,39 +460,9 @@ async function runVerify(run) {
         const agree = onchain.domainHash.toLowerCase() === check.domainHash.toLowerCase()
             && onchain.messageHash.toLowerCase() === check.messageHash.toLowerCase();
 
-        html += check.label === 'ledger'
-            ? '<h3>Compare these to your device</h3>'
-            : '<h3>The nested transaction being approved</h3>';
-        html += row('Network', `${NETWORK_NAMES[tx.chain]} (chain ${tx.chain})`);
-        html += row('Safe', check.target);
-        html += row('safeTxHash', check.approveHash);
-
-        if (agree) {
-            html += row('Domain hash', onchain.domainHash);
-            html += row('Message hash', onchain.messageHash);
-            html += row('Source', 'Safe contract and local recomputation agree');
-        } else {
-            mismatch = true;
-            html += row('DO NOT SIGN', 'The Safe contract and the local recomputation disagree.', true);
-            html += row('Domain (contract)', onchain.domainHash, true);
-            html += row('Domain (local)', check.domainHash, true);
-            html += row('Message (contract)', onchain.messageHash, true);
-            html += row('Message (local)', check.messageHash, true);
-        }
-
-        html += block(
-            check.label === 'ledger' ? 'What you are signing' : 'What is being approved',
-            check.decode
-        );
-        html += block('Parameters for this Safe', check.params);
-
-        const explorer = EXPLORERS[tx.chain];
-        if (explorer) {
-            html += `<p class="verify-note">To confirm without trusting this page, read ` +
-                `<code>encodeTransactionData</code> on <a href="${esc(explorer + check.target)}` +
-                `#readProxyContract">this Safe's contract page</a> (Read as Proxy) with the ` +
-                `parameters directly above.</p>`;
-        }
+        mismatch ||= !agree;
+        unknownIntent ||= hasUnknownCall(check.call);
+        html += renderCheck(check, onchain, tx.chain, agree);
     }
 
     if (!current()) return;
@@ -339,7 +471,9 @@ async function runVerify(run) {
     if (mismatch) {
         throw new Error('MISMATCH - DO NOT SIGN. The contract and the local recomputation disagree.');
     }
-    status('Compare the hashes above to your device before signing.');
+    status(unknownIntent
+        ? 'DO NOT SIGN until every unknown function is independently decoded and confirmed.'
+        : 'Compare the hashes above to your device before signing.');
 }
 
 async function showBuildInfo() {

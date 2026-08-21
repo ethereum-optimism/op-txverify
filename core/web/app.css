@@ -307,46 +307,138 @@ button:disabled {
     margin: 20px 0 8px;
 }
 
-.verify-row {
-    display: flex;
-    flex-wrap: wrap;
+.verify-fields {
+    margin: 0;
+}
+
+.verify-field {
+    display: grid;
+    grid-template-columns: minmax(90px, 120px) minmax(0, 1fr);
     gap: 8px;
-    padding: 6px 0;
+    padding: 7px 0;
     border-bottom: 1px solid #eee;
 }
 
-.verify-label {
-    flex: 0 0 110px;
+.verify-field dt {
     color: #666;
     font-size: 13px;
 }
 
-.verify-value {
-    flex: 1 1 200px;
-    font-family: monospace;
-    font-size: 13px;
-    /* See .status: break-all wraps the line but leaves the intrinsic minimum width unchanged. */
-    word-break: break-all;
-    overflow-wrap: anywhere;
+.verify-field dd {
     min-width: 0;
+    margin: 0;
+    font-size: 13px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
-/* A hash the contract and the local recomputation disagree on must not read as ordinary output. */
-.verify-warn .verify-value,
-.verify-warn .verify-label {
+.verify-field code {
+    word-break: break-all;
+    overflow-wrap: anywhere;
+}
+
+.verify-warn dt,
+.verify-warn dd {
     color: #FF0420;
     font-weight: 600;
 }
 
-.verify-decode {
-    background: #f5f5f5;
+.verify-check + .verify-check {
+    margin-top: 28px;
+    padding-top: 8px;
+    border-top: 2px solid #ddd;
+}
+
+.verify-action {
+    margin: 8px 0;
+    padding: 14px;
+    border: 1px solid #ddd;
     border-radius: 12px;
-    padding: 12px;
+    background: #fafafa;
+}
+
+.verify-action h4 {
+    margin: 0 0 10px;
+    font-size: 16px;
+    line-height: 1.35;
+}
+
+.verify-action h5 {
+    margin: 14px 0 6px;
+    font-size: 13px;
+}
+
+.verify-action-delegate {
+    border: 2px solid #FF0420;
+}
+
+.verify-action-number {
+    margin: 0 0 4px;
+    color: #666;
     font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-all;
-    overflow-wrap: anywhere;
-    overflow-x: auto;
+    font-weight: 600;
+}
+
+.verify-operation-warn,
+.verify-intent-warning {
+    color: #FF0420;
+}
+
+.verify-intent-warning {
+    padding: 12px;
+    border: 2px solid #FF0420;
+    border-radius: 8px;
+    background: #fff4f5;
+    font-size: 14px;
+}
+
+.verify-target-label,
+.verify-hash-source {
+    display: block;
+    margin-bottom: 3px;
+}
+
+.verify-type {
+    display: block;
+    margin-bottom: 3px;
+    color: #666;
+    font-family: monospace;
+    font-size: 11px;
+}
+
+.verify-values {
+    margin: 4px 0;
+    padding-left: 22px;
+}
+
+.verify-values > li + li {
+    margin-top: 6px;
+}
+
+.verify-fields-nested {
+    padding-left: 8px;
+    border-left: 2px solid #ddd;
+}
+
+.verify-subactions {
+    margin-top: 14px;
+}
+
+.verify-raw {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+}
+
+.verify-raw summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.verify-raw-fields {
+    margin-top: 8px;
 }
 
 .verify-note {

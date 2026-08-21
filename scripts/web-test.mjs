@@ -59,7 +59,8 @@ const exported = [
 ];
 // verify.js is a second classic script that reads app.js's globals, so both are evaluated together.
 const source = readFileSync(join(web, 'app.js'), 'utf8') + '\n' + readFileSync(join(web, 'verify.js'), 'utf8');
-const fns = new Function(...Object.keys(globals), `${source}\nreturn { ${exported.join(', ')} };`)(
+const fns = new Function(...Object.keys(globals), `${source}\nreturn { ${exported.join(', ')}, ` +
+  'renderCheck: typeof renderCheck === \'function\' ? renderCheck : undefined };')(
   ...Object.values(globals)
 );
 
@@ -74,6 +75,13 @@ const check = (name, got, want) =>
 // Matching the message keeps a rejection for the wrong reason from reading as a pass.
 const checkMessage = (name, got, want) =>
   report(name, String(got).includes(want), got, `a message containing: ${want}`);
+const checkContains = (name, got, parts) =>
+  report(name, parts.every(part => String(got).includes(part)), got, `HTML containing: ${parts.join(', ')}`);
+const checkOrder = (name, got, parts) => {
+  const positions = parts.map(part => String(got).indexOf(part));
+  report(name, positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1])),
+    positions.join(', '), `increasing positions for: ${parts.join(', ')}`);
+};
 const rejection = (fn) => { try { fn(); return 'no error thrown'; } catch (error) { return error.message; } };
 
 // The page auto-starts without awaiting, so give that work a turn before asserting on it.
@@ -346,6 +354,119 @@ for (const ok of ['1.4.1', '1.3.0', '1.1.1']) {
 check('escapes tags', fns.esc('</pre><script>x</script>'), '&lt;/pre&gt;&lt;script&gt;x&lt;/script&gt;');
 check('escapes attribute-breaking quotes', fns.esc('" autofocus onfocus=alert(1) x="'),
   '&quot; autofocus onfocus=alert(1) x=&quot;');
+
+// These fixtures call the production renderer used by runVerify. A string inspection here checks
+// the signer-visible HTML without duplicating the renderer in a test-only DOM implementation.
+const ETHERFI_SPOKE = '0xdffcC3536D932eb51Df51a7F5FA407c4270d5308';
+const LOCAL_DOMAIN_HASH = `0x${'4'.repeat(64)}`;
+const LOCAL_MESSAGE_HASH = `0x${'5'.repeat(64)}`;
+const rendererCheck = (over = {}) => ({
+  label: 'ledger', target: INNER_SAFE, safeVersion: '1.4.1', approveHash: HASH,
+  domainHash: LOCAL_DOMAIN_HASH, messageHash: LOCAL_MESSAGE_HASH,
+  call: {
+    target: ETHERFI_SPOKE, targetLabel: 'ETHERFI SPOKE (PROXY)', functionName: 'withdraw',
+    signature: 'withdraw(uint256,uint256,address)', operation: 'CALL',
+    arguments: [
+      { name: 'reserveId', type: 'uint256', value: '0' },
+      { name: 'amount', type: 'uint256', value: '5000057' },
+      { name: 'onBehalfOf', type: 'address', value: INNER_SAFE },
+    ],
+  },
+  safeFields: {
+    to: ETHERFI_SPOKE, value: '0', data: '0x0ad58d2f00', operation: '0', safeTxGas: '0',
+    baseGas: '0', gasPrice: '0', gasToken: ZERO_ADDRESS, refundReceiver: ZERO_ADDRESS, nonce: '3',
+  },
+  ...over,
+});
+const render = (checkValue = rendererCheck(), onchain = {
+  domainHash: LOCAL_DOMAIN_HASH, messageHash: LOCAL_MESSAGE_HASH,
+}, agree = true) => fns.renderCheck?.(checkValue, onchain, 10, agree) || '';
+
+report('production check renderer is available', typeof fns.renderCheck === 'function',
+  typeof fns.renderCheck, 'function');
+
+const friendlyHTML = render();
+checkContains('known calls render a readable EtherFi action with exact local arguments', friendlyHTML, [
+  '<article', '<dl', 'ETHERFI SPOKE (PROXY)', ETHERFI_SPOKE, 'withdraw',
+  'withdraw(uint256,uint256,address)', 'CALL', 'reserveId', '>0<', 'amount', '5000057',
+  'onBehalfOf', INNER_SAFE,
+]);
+report('known calls do not fall back to preformatted Go-map text', !friendlyHTML.includes('verify-decode') &&
+  !friendlyHTML.includes('<pre'), friendlyHTML, 'semantic HTML without verify-decode or pre');
+
+const recursiveHTML = render(rendererCheck({ call: {
+  target: `0x${'c'.repeat(40)}`, targetLabel: 'Batch caller', functionName: 'aggregate3',
+  signature: 'aggregate3((address,bool,bytes)[])', operation: 'DELEGATECALL', calls: [
+    rendererCheck().call,
+    {
+      target: `0x${'d'.repeat(40)}`, functionName: 'setConfig', signature: 'setConfig((uint256,bool)[])',
+      operation: 'CALL', arguments: [{ name: 'configs', type: '(uint256,bool)[]', value: [[
+        { name: 'limit', type: 'uint256', value: '9007199254740993' },
+        { name: 'enabled', type: 'bool', value: true },
+      ]] }], calls: [{
+        target: `0x${'e'.repeat(40)}`, functionName: 'pause', signature: 'pause()',
+        operation: 'DELEGATECALL',
+      }],
+    },
+  ],
+} }));
+checkContains('nested actions are recursive, numbered, precision-safe, and flag delegatecall', recursiveHTML, [
+  'Action 1', 'Action 2', 'Action 2.1', 'DELEGATECALL', 'limit', '9007199254740993',
+  'enabled', 'true', 'pause()',
+]);
+
+const malicious = '</dd><script>window.pwned=1</script><span title="';
+const maliciousHTML = render(rendererCheck({ call: {
+  target: ETHERFI_SPOKE, targetLabel: malicious, functionName: 'propose',
+  signature: 'propose(address[],uint256[],bytes[],string,uint8)', operation: 'CALL',
+  arguments: [{ name: 'description', type: 'string', value: malicious }],
+} }));
+report('every ABI and label string is escaped by the production renderer',
+  !maliciousHTML.includes('<script>') && !maliciousHTML.includes('<span title="') &&
+    maliciousHTML.includes('&lt;/dd&gt;&lt;script&gt;window.pwned=1&lt;/script&gt;'),
+  maliciousHTML, 'escaped text with no injected script or attribute');
+
+const unknownRaw = '0xdeadbeef00000001';
+const unknownHTML = render(rendererCheck({ call: {
+  target: ETHERFI_SPOKE, functionName: 'Unknown function', operation: 'CALL',
+  selector: '0xdeadbeef', rawCalldata: unknownRaw,
+} }));
+checkContains('unknown calldata stays visible and fails intent verification clearly', unknownHTML, [
+  'Unknown function', ETHERFI_SPOKE, '0xdeadbeef', unknownRaw,
+  'hashes may agree', 'not established', 'DO NOT SIGN', 'independently decoded',
+]);
+
+for (const [name, call, visible] of [
+  ['native transfer', {
+    target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL', arguments: [
+      { name: 'recipient', type: 'address', value: INNER_SAFE },
+      { name: 'value', type: 'uint256', value: '9007199254740993' },
+    ],
+  }, ['Send native ETH', 'recipient', INNER_SAFE, 'value', '9007199254740993']],
+  ['no calldata', { target: INNER_SAFE, functionName: 'No calldata', operation: 'CALL' },
+    ['No calldata', INNER_SAFE, 'CALL']],
+]) {
+  checkContains(`${name} has a clear signer-visible presentation`,
+    render(rendererCheck({ call })), visible);
+}
+
+checkContains('exact Safe fields stay in an open collapsible raw section', friendlyHTML, [
+  '<details', 'open', '<summary>Raw transaction fields</summary>', '<code>to</code>', ETHERFI_SPOKE,
+  '<code>value</code>', '<code>data</code>', '0x0ad58d2f00', '<code>operation</code>',
+  '<code>safeTxGas</code>', '<code>baseGas</code>', '<code>gasPrice</code>', '<code>gasToken</code>',
+  '<code>refundReceiver</code>', '<code>nonce</code>',
+]);
+checkOrder('agreeing hashes match the Safe UI order', friendlyHTML,
+  ['Domain hash', 'Message hash', 'safeTxHash']);
+
+const mismatchHTML = render(rendererCheck(), {
+  domainHash: `0x${'6'.repeat(64)}`, messageHash: `0x${'7'.repeat(64)}`,
+}, false);
+checkContains('hash mismatches remain DO NOT SIGN and show both sources', mismatchHTML, [
+  'DO NOT SIGN', 'Safe contract', 'Local recomputation', LOCAL_DOMAIN_HASH, LOCAL_MESSAGE_HASH,
+]);
+checkOrder('mismatching hashes keep domain, message, safeTxHash ordering', mismatchHTML,
+  ['Domain hash', 'Message hash', 'safeTxHash']);
 
 // A result describes the inputs it came from. Leaving it on screen after one of them changes shows
 // a signer a green result for a transaction that is no longer the one in the box.
