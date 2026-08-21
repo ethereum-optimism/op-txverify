@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 const (
@@ -77,6 +78,18 @@ type FunctionInfo struct {
 	Name      string
 	Signature string
 	ABI       abi.Method
+}
+
+// KnownABIRecord is a reviewed decode entry.  The ABI JSON retains tuple
+// components, while Signature and ParameterNames make the rendered call and
+// provenance independently reviewable.
+type KnownABIRecord struct {
+	Signature      string
+	ParameterNames []string
+	Source         string
+	ChainID        uint64
+	Address        string
+	ABIJSON        string
 }
 
 // ChainID constants for supported networks
@@ -235,29 +248,118 @@ var KnownABIJSON = []string{
 	`[{"inputs":[],"name":"migrateWithFallbackHandler","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                                                      // migrateWithFallbackHandler
 }
 
+const safeHistoryReviewSource = "Safe history review: .superpowers/sdd/op-txverify-followup-plan/task-1-brief.md"
+
+// historyABIRecords contains the reviewed additions from the Safe history.
+// Scope is provenance only: selector decoding intentionally remains global,
+// because an address can be reached through a proxy or a delegatecall.
+var historyABIRecords = []KnownABIRecord{
+	{Signature: "setRequired(uint256)", ParameterNames: []string{"required"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"required","type":"uint256"}],"name":"setRequired","type":"function"}]`},
+	{Signature: "configureLivenessModule((uint256,address))", ParameterNames: []string{"config"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"config","type":"tuple","components":[{"name":"required","type":"uint256"},{"name":"livenessModule","type":"address"}]}],"name":"configureLivenessModule","type":"function"}]`},
+	{Signature: "execute(bytes)", ParameterNames: []string{"data"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"data","type":"bytes"}],"name":"execute","type":"function"}]`},
+	{Signature: "withdraw(uint256,uint256,address)", ParameterNames: []string{"assets", "shares", "receiver"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"assets","type":"uint256"},{"name":"shares","type":"uint256"},{"name":"receiver","type":"address"}],"name":"withdraw","type":"function"}]`},
+	{Signature: "setOwner(address)", ParameterNames: []string{"owner"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"owner","type":"address"}],"name":"setOwner","type":"function"}]`},
+	{Signature: "setImplementation(uint32,address)", ParameterNames: []string{"gameType", "implementation"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"gameType","type":"uint32"},{"name":"implementation","type":"address"}],"name":"setImplementation","type":"function"}]`},
+	{Signature: "createProxyWithNonce(address,bytes,uint256)", ParameterNames: []string{"singleton", "initializer", "saltNonce"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"singleton","type":"address"},{"name":"initializer","type":"bytes"},{"name":"saltNonce","type":"uint256"}],"name":"createProxyWithNonce","type":"function"}]`},
+	{Signature: "migrateEth(address)", ParameterNames: []string{"recipient"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"recipient","type":"address"}],"name":"migrateEth","type":"function"}]`},
+	{Signature: "setDeputy(address,bytes)", ParameterNames: []string{"deputy", "permissions"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"deputy","type":"address"},{"name":"permissions","type":"bytes"}],"name":"setDeputy","type":"function"}]`},
+	{Signature: "setUnsafeBlockSigner(address)", ParameterNames: []string{"signer"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"signer","type":"address"}],"name":"setUnsafeBlockSigner","type":"function"}]`},
+	{Signature: "setInitBond(uint32,uint256)", ParameterNames: []string{"gameType", "initBond"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"gameType","type":"uint32"},{"name":"initBond","type":"uint256"}],"name":"setInitBond","type":"function"}]`},
+	{Signature: "unpause()", Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[],"name":"unpause","type":"function"}]`},
+	{Signature: "initialize(address,address)", ParameterNames: []string{"owner", "guardian"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"owner","type":"address"},{"name":"guardian","type":"address"}],"name":"initialize","type":"function"}]`},
+	{Signature: "setBytes32(bytes32,bytes32)", ParameterNames: []string{"key", "value"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"key","type":"bytes32"},{"name":"value","type":"bytes32"}],"name":"setBytes32","type":"function"}]`},
+	{Signature: "setRecommended(uint256)", ParameterNames: []string{"required"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"required","type":"uint256"}],"name":"setRecommended","type":"function"}]`},
+	{Signature: "enableModule(address)", ParameterNames: []string{"module"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"module","type":"address"}],"name":"enableModule","type":"function"}]`},
+	{Signature: "changeThreshold(uint256)", ParameterNames: []string{"threshold"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"threshold","type":"uint256"}],"name":"changeThreshold","type":"function"}]`},
+	{Signature: "pause()", Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[],"name":"pause","type":"function"}]`},
+	{Signature: "supply(uint256,uint256,address)", ParameterNames: []string{"assets", "shares", "receiver"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"assets","type":"uint256"},{"name":"shares","type":"uint256"},{"name":"receiver","type":"address"}],"name":"supply","type":"function"}]`},
+	{Signature: "initialize(address,address,address,uint32)", ParameterNames: []string{"owner", "feeRecipient", "oracle", "gasLimit"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"owner","type":"address"},{"name":"feeRecipient","type":"address"},{"name":"oracle","type":"address"},{"name":"gasLimit","type":"uint32"}],"name":"initialize","type":"function"}]`},
+	{Signature: "changeAdmin(address)", ParameterNames: []string{"admin"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"admin","type":"address"}],"name":"changeAdmin","type":"function"}]`},
+	{Signature: "setGasConfig(uint256,uint256)", ParameterNames: []string{"gasLimit", "baseFee"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"gasLimit","type":"uint256"},{"name":"baseFee","type":"uint256"}],"name":"setGasConfig","type":"function"}]`},
+	{Signature: "upgradeAndCall(address,address,bytes)", ParameterNames: []string{"proxy", "implementation", "data"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"proxy","type":"address"},{"name":"implementation","type":"address"},{"name":"data","type":"bytes"}],"name":"upgradeAndCall","type":"function"}]`},
+	{Signature: "upgrade(address,address)", ParameterNames: []string{"proxy", "implementation"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"proxy","type":"address"},{"name":"implementation","type":"address"}],"name":"upgrade","type":"function"}]`},
+	{Signature: "setAddress(string,address)", ParameterNames: []string{"key", "value"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"key","type":"string"},{"name":"value","type":"address"}],"name":"setAddress","type":"function"}]`},
+	{Signature: "setRespectedGameType(address,uint32)", ParameterNames: []string{"disputeGameFactory", "gameType"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"disputeGameFactory","type":"address"},{"name":"gameType","type":"uint32"}],"name":"setRespectedGameType","type":"function"}]`},
+	{Signature: "setImplementation(uint32,address,bytes)", ParameterNames: []string{"gameType", "implementation", "initData"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"gameType","type":"uint32"},{"name":"implementation","type":"address"},{"name":"initData","type":"bytes"}],"name":"setImplementation","type":"function"}]`},
+	{Signature: "setGasLimit(uint64)", ParameterNames: []string{"gasLimit"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"gasLimit","type":"uint64"}],"name":"setGasLimit","type":"function"}]`},
+	{Signature: "setEIP1559Params(uint32,uint32)", ParameterNames: []string{"denominator", "elasticity"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"denominator","type":"uint32"},{"name":"elasticity","type":"uint32"}],"name":"setEIP1559Params","type":"function"}]`},
+	{Signature: "setBatcherHash(bytes32)", ParameterNames: []string{"batcherHash"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"batcherHash","type":"bytes32"}],"name":"setBatcherHash","type":"function"}]`},
+	{Signature: "setAddress(bytes32,address)", ParameterNames: []string{"key", "value"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"key","type":"bytes32"},{"name":"value","type":"address"}],"name":"setAddress","type":"function"}]`},
+	{Signature: "updateDynamicConfig((uint256,uint256),bool)", ParameterNames: []string{"config", "isEcotone"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"config","type":"tuple","components":[{"name":"maxSequencerDrift","type":"uint256"},{"name":"sequencerWindowSize","type":"uint256"}]},{"name":"isEcotone","type":"bool"}],"name":"updateDynamicConfig","type":"function"}]`},
+	{Signature: "phase2()", Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[],"name":"phase2","type":"function"}]`},
+	{Signature: "disableModule(address,address)", ParameterNames: []string{"prevModule", "module"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"prevModule","type":"address"},{"name":"module","type":"address"}],"name":"disableModule","type":"function"}]`},
+	{Signature: "setGuard(address)", ParameterNames: []string{"guard"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"guard","type":"address"}],"name":"setGuard","type":"function"}]`},
+	{Signature: "phase1()", Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[],"name":"phase1","type":"function"}]`},
+	{Signature: "transferOwnership(address)", ParameterNames: []string{"newOwner"}, Source: safeHistoryReviewSource, ABIJSON: `[{"inputs":[{"name":"newOwner","type":"address"}],"name":"transferOwnership","type":"function"}]`},
+}
+
+// KnownABIRecords is the complete, structured local signature database.
+var KnownABIRecords = append(legacyABIRecords(), historyABIRecords...)
+
 // Initialize known functions
 func init() {
-	// Parse each ABI JSON and add to KnownFunctions
+	functions, err := BuildKnownFunctions(KnownABIRecords)
+	if err != nil {
+		panic(fmt.Sprintf("build known function selector map: %v", err))
+	}
+	KnownFunctions = functions
+}
+
+// legacyABIRecords keeps pre-existing decodes structured while their original
+// ABI JSON remains the source for tuple component details.
+func legacyABIRecords() []KnownABIRecord {
+	records := make([]KnownABIRecord, 0, len(KnownABIJSON))
 	for _, abiJSON := range KnownABIJSON {
 		parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
 		if err != nil {
-			// Log error but continue
-			fmt.Printf("Error parsing ABI JSON: %v\n", err)
-			continue
+			panic(fmt.Sprintf("parse legacy ABI JSON: %v", err))
 		}
-
-		// There should be only one method in each ABI
-		for name, method := range parsedABI.Methods {
-			// Add to known functions map using the selector hex
-			selector := hex.EncodeToString(method.ID[:])
-
-			KnownFunctions[selector] = FunctionInfo{
-				Name:      name,
-				Signature: method.Sig,
-				ABI:       method,
+		for _, method := range parsedABI.Methods {
+			parameterNames := make([]string, len(method.Inputs))
+			for i, input := range method.Inputs {
+				parameterNames[i] = input.Name
 			}
+			records = append(records, KnownABIRecord{Signature: method.Sig, ParameterNames: parameterNames, Source: "existing local signature database", ABIJSON: abiJSON})
 		}
 	}
+	return records
+}
+
+// BuildKnownFunctions builds the selector map from reviewed ABI records. A
+// conflicting collision is unsafe: the old last-write-wins behavior could show
+// callers a different method than their calldata selects.
+func BuildKnownFunctions(records []KnownABIRecord) (map[string]FunctionInfo, error) {
+	functions := make(map[string]FunctionInfo, len(records))
+	for _, record := range records {
+		if record.Signature == "" || record.Source == "" {
+			return nil, fmt.Errorf("record must include signature and source")
+		}
+		parsedABI, err := abi.JSON(strings.NewReader(record.ABIJSON))
+		if err != nil {
+			return nil, fmt.Errorf("parse %s ABI: %w", record.Signature, err)
+		}
+
+		for _, method := range parsedABI.Methods {
+			if method.Sig != record.Signature {
+				return nil, fmt.Errorf("ABI signature %s does not match record signature %s", method.Sig, record.Signature)
+			}
+			if len(method.Inputs) != len(record.ParameterNames) {
+				return nil, fmt.Errorf("parameter names for %s do not match ABI", record.Signature)
+			}
+			for i, input := range method.Inputs {
+				if input.Name != record.ParameterNames[i] {
+					return nil, fmt.Errorf("parameter %d for %s is %q, want %q", i, record.Signature, input.Name, record.ParameterNames[i])
+				}
+			}
+
+			selector := hex.EncodeToString(crypto.Keccak256([]byte(record.Signature))[:4])
+			if existing, ok := functions[selector]; ok && existing.Signature != record.Signature {
+				return nil, fmt.Errorf("selector %s conflicts between %s and %s", selector, existing.Signature, record.Signature)
+			}
+			functions[selector] = FunctionInfo{Name: method.Name, Signature: record.Signature, ABI: method}
+		}
+	}
+	return functions, nil
 }
 
 func GetKnownContract(address string, chainID uint64) (ContractInfo, bool) {
