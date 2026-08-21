@@ -54,6 +54,7 @@ const (
 	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
 	SaferSafes               = "0xA8447329e52F64AED2bFc9E7a2506F7D369f483a"
 	// EtherFiSpokeProxy is an EIP-1967 proxy whose implementation is EtherFiSpokeImpl.
+	// Proxy relationship: https://explorer.optimism.io/api/v2/addresses/0xdffcC3536D932eb51Df51a7F5FA407c4270d5308
 	// Verified implementation source: https://explorer.optimism.io/address/0xA1f75D801633a1941cae6670352d627884dC3b68?tab=contract
 	EtherFiSpokeProxy      = "0xdffcC3536D932eb51Df51a7F5FA407c4270d5308"
 	EtherFiSpokeImpl       = "0xA1f75D801633a1941cae6670352d627884dC3b68"
