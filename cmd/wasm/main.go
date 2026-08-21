@@ -5,10 +5,13 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall/js"
 
@@ -72,9 +75,9 @@ func txvVerify(_ js.Value, args []js.Value) (out any) {
 // contractChecks lists the eth_calls the page should make. "ledger" is the pair the signer compares
 // against the device; "inner" is the nested transaction being approved, when there is one.
 //
-// Each entry carries its own rendered decode and parameters: this side holds exact big.Int values
+// Each entry carries its own structured call and Safe fields. This side holds exact big.Int values
 // where JSON.parse would round above 2^53-1, and self-contained entries mean the page cannot pair
-// one transaction's hashes with another's parameters, which for a nested transaction differ.
+// one transaction's hashes with another's fields, which differ for a nested transaction.
 func contractChecks(result *core.VerificationResult) ([]any, error) {
 	checks := make([]any, 0, 2)
 	for _, c := range []struct {
@@ -96,6 +99,10 @@ func contractChecks(result *core.VerificationResult) ([]any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode %s check: %w", c.label, err)
 		}
+		call, err := structuredCall(c.result.Call, tx.Value, tx.Operation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to present %s check: %w", c.label, err)
+		}
 		checks = append(checks, map[string]any{
 			"label":       c.label,
 			"target":      target,
@@ -106,8 +113,8 @@ func contractChecks(result *core.VerificationResult) ([]any, error) {
 			// keccak256(0x1901 || domainHash || messageHash), so the page can hold this result to
 			// the hash it asked for. See core.SafeTransaction.SafeTxHash.
 			"approveHash": c.result.ApproveHash,
-			"decode":      renderCall(c.result.Call, 0),
-			"params":      renderParams(tx),
+			"call":        call,
+			"safeFields":  structuredSafeFields(tx),
 		})
 	}
 	return checks, nil
@@ -115,50 +122,239 @@ func contractChecks(result *core.VerificationResult) ([]any, error) {
 
 var addressPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
 
-func renderCall(call core.CallData, depth int) string {
-	pad := strings.Repeat("  ", depth)
-	name := call.Target
-	if call.TargetName != "" {
-		name = fmt.Sprintf("%s (%s)", call.Target, call.TargetName)
+func structuredCall(call core.CallData, value *big.Int, operation int) (map[string]any, error) {
+	view := map[string]any{
+		"target":    call.Target,
+		"operation": operationName(operation),
 	}
-	function := call.FunctionName
-	if function == "" {
-		function = "(raw)"
+	if call.TargetName != "" {
+		view["targetLabel"] = call.TargetName
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s%s -> %s", pad, function, name)
-	if call.IsDelegateCall {
-		b.WriteString("  [DELEGATECALL]")
+	calldata := call.Calldata
+	if calldata == "" {
+		calldata = call.RawData
 	}
-	if call.ParsedData != nil {
-		fmt.Fprintf(&b, "\n%s  %v", pad, call.ParsedData)
+	cleanData := strings.TrimPrefix(calldata, "0x")
+	if cleanData == "" && call.FunctionData == "" {
+		if value != nil && value.Sign() > 0 {
+			view["functionName"] = "Send native ETH"
+			view["arguments"] = []any{
+				argument("recipient", "address", call.Target),
+				argument("value", "uint256", value.String()),
+			}
+		} else {
+			view["functionName"] = "No calldata"
+		}
+		return addSubcalls(view, call.SubCalls)
 	}
-	for _, sub := range call.SubCalls {
-		fmt.Fprintf(&b, "\n%s", renderCall(sub, depth+1))
+
+	info, decoded, err := decodeCallArguments(call, cleanData)
+	if err != nil {
+		return nil, err
 	}
-	return b.String()
+	if info == nil {
+		view["functionName"] = "Unknown function"
+		if len(cleanData) >= 8 {
+			view["selector"] = "0x" + strings.ToLower(cleanData[:8])
+		}
+		view["rawCalldata"] = "0x" + cleanData
+		return addSubcalls(view, call.SubCalls)
+	}
+
+	view["functionName"] = info.Name
+	view["signature"] = info.Signature
+	if len(decoded) > 0 {
+		view["arguments"] = decoded
+	}
+	return addSubcalls(view, call.SubCalls)
 }
 
-// renderParams prints the exact arguments this check's eth_call uses, so a signer re-reading
-// encodeTransactionData on a block explorer enters the same values.
-func renderParams(tx core.SafeTransaction) string {
+func decodeCallArguments(call core.CallData, cleanData string) (*core.FunctionInfo, []any, error) {
+	if cleanData == "" {
+		for _, candidate := range core.KnownFunctions {
+			if candidate.Signature == call.FunctionData {
+				info := candidate
+				return &info, nil, nil
+			}
+		}
+		return nil, nil, nil
+	}
+	if len(cleanData) < 8 {
+		return nil, nil, nil
+	}
+	info, ok := core.KnownFunctions[strings.ToLower(cleanData[:8])]
+	if !ok {
+		return nil, nil, nil
+	}
+	data, err := hex.DecodeString(cleanData[8:])
+	if err != nil {
+		return nil, nil, nil
+	}
+	values, err := info.ABI.Inputs.Unpack(data)
+	if err != nil {
+		return nil, nil, nil
+	}
+	arguments := make([]any, len(values))
+	for i, value := range values {
+		converted, err := exactABIValue(info.ABI.Inputs[i].Type, value)
+		if err != nil {
+			return nil, nil, fmt.Errorf("convert %s argument %s: %w", info.Signature, info.ABI.Inputs[i].Name, err)
+		}
+		name := info.ABI.Inputs[i].Name
+		if name == "" {
+			name = fmt.Sprintf("arg%d", i)
+		}
+		arguments[i] = argument(name, info.ABI.Inputs[i].Type.String(), converted)
+	}
+	return &info, arguments, nil
+}
+
+func exactABIValue(typ abi.Type, value any) (any, error) {
+	switch typ.T {
+	case abi.IntTy, abi.UintTy:
+		switch value := value.(type) {
+		case *big.Int:
+			return value.String(), nil
+		case big.Int:
+			return value.String(), nil
+		}
+		rv := reflect.ValueOf(value)
+		if rv.IsValid() {
+			switch rv.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				return strconv.FormatInt(rv.Int(), 10), nil
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				return strconv.FormatUint(rv.Uint(), 10), nil
+			}
+		}
+		return nil, fmt.Errorf("integer has Go type %T", value)
+	case abi.BoolTy:
+		result, ok := value.(bool)
+		if !ok {
+			return nil, fmt.Errorf("bool has Go type %T", value)
+		}
+		return result, nil
+	case abi.StringTy:
+		result, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("string has Go type %T", value)
+		}
+		return result, nil
+	case abi.AddressTy:
+		result, ok := value.(common.Address)
+		if !ok {
+			return nil, fmt.Errorf("address has Go type %T", value)
+		}
+		return result.Hex(), nil
+	case abi.BytesTy, abi.FixedBytesTy, abi.FunctionTy:
+		return exactBytes(value)
+	case abi.SliceTy, abi.ArrayTy:
+		rv := reflect.ValueOf(value)
+		if rv.Kind() != reflect.Array && rv.Kind() != reflect.Slice {
+			return nil, fmt.Errorf("array has Go type %T", value)
+		}
+		items := make([]any, rv.Len())
+		for i := 0; i < rv.Len(); i++ {
+			converted, err := exactABIValue(*typ.Elem, rv.Index(i).Interface())
+			if err != nil {
+				return nil, fmt.Errorf("element %d: %w", i, err)
+			}
+			items[i] = converted
+		}
+		return items, nil
+	case abi.TupleTy:
+		rv := reflect.ValueOf(value)
+		if rv.Kind() == reflect.Pointer {
+			rv = rv.Elem()
+		}
+		if rv.Kind() != reflect.Struct || rv.NumField() != len(typ.TupleElems) {
+			return nil, fmt.Errorf("tuple has Go type %T", value)
+		}
+		fields := make([]any, len(typ.TupleElems))
+		for i, elem := range typ.TupleElems {
+			converted, err := exactABIValue(*elem, rv.Field(i).Interface())
+			if err != nil {
+				return nil, fmt.Errorf("tuple field %d: %w", i, err)
+			}
+			name := ""
+			if i < len(typ.TupleRawNames) {
+				name = typ.TupleRawNames[i]
+			}
+			if name == "" {
+				name = fmt.Sprintf("field%d", i)
+			}
+			fields[i] = argument(name, elem.String(), converted)
+		}
+		return fields, nil
+	default:
+		return nil, fmt.Errorf("unsupported ABI type %s", typ.String())
+	}
+}
+
+func exactBytes(value any) (string, error) {
+	rv := reflect.ValueOf(value)
+	if rv.Kind() != reflect.Array && rv.Kind() != reflect.Slice {
+		return "", fmt.Errorf("bytes have Go type %T", value)
+	}
+	data := make([]byte, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		if rv.Index(i).Kind() != reflect.Uint8 {
+			return "", fmt.Errorf("byte %d has Go type %s", i, rv.Index(i).Kind())
+		}
+		data[i] = byte(rv.Index(i).Uint())
+	}
+	return hexutil.Encode(data), nil
+}
+
+func addSubcalls(view map[string]any, subcalls []core.CallData) (map[string]any, error) {
+	if len(subcalls) == 0 {
+		return view, nil
+	}
+	calls := make([]any, len(subcalls))
+	for i, subcall := range subcalls {
+		operation := 0
+		if subcall.IsDelegateCall {
+			operation = 1
+		}
+		call, err := structuredCall(subcall, subcall.Value, operation)
+		if err != nil {
+			return nil, fmt.Errorf("subcall %d: %w", i, err)
+		}
+		calls[i] = call
+	}
+	view["calls"] = calls
+	return view, nil
+}
+
+func argument(name, typ string, value any) map[string]any {
+	return map[string]any{"name": name, "type": typ, "value": value}
+}
+
+func operationName(operation int) string {
+	if operation == 1 {
+		return "DELEGATECALL"
+	}
+	return "CALL"
+}
+
+func structuredSafeFields(tx core.SafeTransaction) map[string]any {
 	value := "0"
 	if tx.Value != nil {
 		value = tx.Value.String()
 	}
-	return strings.Join([]string{
-		fmt.Sprintf("to:             %s", core.StripChainPrefix(tx.To)),
-		fmt.Sprintf("value:          %s", value),
-		fmt.Sprintf("operation:      %d", tx.Operation),
-		fmt.Sprintf("safeTxGas:      %d", tx.SafeTxGas),
-		fmt.Sprintf("baseGas:        %d", tx.BaseGas),
-		fmt.Sprintf("gasPrice:       %d", tx.GasPrice),
-		fmt.Sprintf("gasToken:       %s", tx.GasToken),
-		fmt.Sprintf("refundReceiver: %s", tx.RefundReceiver),
-		fmt.Sprintf("nonce:          %d", tx.Nonce),
-		fmt.Sprintf("data:           %s", tx.Data),
-	}, "\n")
+	return map[string]any{
+		"to":             core.StripChainPrefix(tx.To),
+		"value":          value,
+		"data":           tx.Data,
+		"operation":      strconv.Itoa(tx.Operation),
+		"safeTxGas":      strconv.Itoa(tx.SafeTxGas),
+		"baseGas":        strconv.Itoa(tx.BaseGas),
+		"gasPrice":       strconv.Itoa(tx.GasPrice),
+		"gasToken":       tx.GasToken,
+		"refundReceiver": tx.RefundReceiver,
+		"nonce":          strconv.Itoa(tx.Nonce),
+	}
 }
 
 func encodeTransactionDataCalldata(tx core.SafeTransaction) (string, error) {

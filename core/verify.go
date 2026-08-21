@@ -135,10 +135,12 @@ type CallData struct {
 	TargetName     string      `json:"targetName,omitempty"`
 	FunctionName   string      `json:"functionName"`
 	FunctionData   string      `json:"functionData,omitempty"`
+	Calldata       string      `json:"-"`
 	RawData        string      `json:"rawData,omitempty"`
 	ParsedData     interface{} `json:"parsedData,omitempty"`
 	SubCalls       []CallData  `json:"subCalls,omitempty"`
 	IsDelegateCall bool        `json:"isDelegateCall,omitempty"`
+	Value          *big.Int    `json:"-"`
 }
 
 // VerifyOptions contains configuration options for verification

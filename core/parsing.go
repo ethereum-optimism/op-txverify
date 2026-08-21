@@ -16,6 +16,7 @@ import (
 func ParseTransactionData(to string, data string, chainID uint64, options VerifyOptions) (*CallData, error) {
 	// Remove 0x prefix if present
 	cleanData := strings.TrimPrefix(data, "0x")
+	rawData := "0x" + cleanData
 
 	// Normalize the target address
 	normalizedTo := strings.ToLower(to)
@@ -33,7 +34,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: "unknown",
-			RawData:      "0x" + data,
+			RawData:      rawData,
 		}, nil
 	}
 
@@ -43,7 +44,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: "unknown",
-			RawData:      data,
+			RawData:      rawData,
 		}, nil
 	}
 
@@ -58,7 +59,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: "unknown",
-			RawData:      data,
+			RawData:      rawData,
 		}, nil
 	}
 
@@ -70,7 +71,8 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: functionInfo.Name,
-			RawData:      data,
+			FunctionData: functionInfo.Signature,
+			RawData:      rawData,
 		}, nil
 	}
 
@@ -109,6 +111,8 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: functionInfo.Name,
+			FunctionData: functionInfo.Signature,
+			Calldata:     rawData,
 			SubCalls:     subcalls,
 		}, nil
 	}
@@ -118,6 +122,8 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 		Target:       to,
 		TargetName:   targetName,
 		FunctionName: functionInfo.Name,
+		FunctionData: functionInfo.Signature,
+		Calldata:     rawData,
 		ParsedData:   parsedArgs,
 	}, nil
 }
@@ -320,15 +326,15 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 					break
 				}
 
-				// Extract operation
-				// Can skip extracting the operation as it's always 0
+				// Extract operation.
+				operation := data[pos]
 				pos++
 
 				// Extract to address
 				to := common.BytesToAddress(data[pos : pos+20])
 				pos += 20
 
-				// Skip extracting value for now, can implement later if needed
+				value := new(big.Int).SetBytes(data[pos : pos+32])
 				pos += 32
 
 				// Extract data length
@@ -353,6 +359,8 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 					return nil, err
 				}
 
+				subcall.Value = value
+				subcall.IsDelegateCall = operation == 1
 				subcalls = append(subcalls, *subcall)
 			}
 		} else {
@@ -505,6 +513,8 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 				if err != nil {
 					continue
 				}
+
+				subcall.Value = call.Value
 
 				// If the multicall is via the delegatecall helper, mark subcalls as delegate
 				if normalizedAddress == strings.ToLower(Multicall3Delegatecall) {

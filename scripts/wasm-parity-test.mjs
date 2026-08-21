@@ -75,11 +75,95 @@ if (!check) {
   if (check.target?.toLowerCase() !== SAFE.toLowerCase()) {
     failures.push(`contractChecks[0].target:\n  want ${SAFE}\n  got  ${check.target}`);
   }
-  for (const field of ["domainHash", "messageHash", "approveHash", "decode", "params", "safeVersion"]) {
+  for (const field of ["domainHash", "messageHash", "approveHash", "call", "safeFields", "safeVersion"]) {
     if (!check[field]) failures.push(`contractChecks[0].${field}: missing`);
   }
+  if ("decode" in check || "params" in check) {
+    failures.push("contractChecks[0] still exposes rendered decode/params strings");
+  }
+  if (check.call?.functionName !== "aggregate3" || check.call?.signature !== "aggregate3((address,bool,bytes)[])") {
+    failures.push(`contractChecks[0].call does not identify aggregate3: ${JSON.stringify(check.call)}`);
+  }
+  if (check.call?.operation !== "DELEGATECALL" || check.call?.calls?.length !== 1) {
+    failures.push(`contractChecks[0].call does not preserve delegatecall/nested calls: ${JSON.stringify(check.call)}`);
+  }
+  const approveCall = check.call?.calls?.[0];
+  if (approveCall?.functionName !== "approveHash"
+      || approveCall?.signature !== "approveHash(bytes32)"
+      || approveCall?.arguments?.[0]?.name !== "hashToApprove"
+      || approveCall?.arguments?.[0]?.type !== "bytes32"
+      || approveCall?.arguments?.[0]?.value !== "0x493ad64b8f788ed9808c7bf527a10a017d9f263bb7889868ce18b451d685762d") {
+    failures.push(`contractChecks[0].call does not preserve its typed nested approveHash: ${JSON.stringify(approveCall)}`);
+  }
+  if (check.safeFields?.nonce !== "15" || check.safeFields?.operation !== "1" || check.safeFields?.value !== "0") {
+    failures.push(`contractChecks[0].safeFields are not exact decimal strings: ${JSON.stringify(check.safeFields)}`);
+  }
+  assertNoNumbers(check.call, "contractChecks[0].call", failures);
+  assertNoNumbers(check.safeFields, "contractChecks[0].safeFields", failures);
   if (check.domainHash !== expected.domainHash || check.messageHash !== expected.messageHash) {
     failures.push("contractChecks[0] hashes disagree with the verification result");
+  }
+}
+
+const PRESENTATION_RECIPIENT = "0x1111111111111111111111111111111111111111";
+const LARGE_VALUE = "9007199254740993";
+const nativeOut = globalThis.txvVerify(JSON.stringify({
+  ...tx,
+  to: PRESENTATION_RECIPIENT,
+  value: LARGE_VALUE,
+  data: "0x",
+  operation: 0,
+  nonce: 16,
+}));
+if (nativeOut?.error) {
+  failures.push(`native transfer vector returned an error: ${nativeOut.error}`);
+} else {
+  const nativeCheck = nativeOut.contractChecks?.[0];
+  if (nativeCheck?.call?.functionName !== "Send native ETH") {
+    failures.push(`native transfer label: want Send native ETH got ${nativeCheck?.call?.functionName}`);
+  }
+  if (nativeCheck?.call?.target !== PRESENTATION_RECIPIENT) {
+    failures.push(`native transfer recipient: want ${PRESENTATION_RECIPIENT} got ${nativeCheck?.call?.target}`);
+  }
+  if (nativeCheck?.safeFields?.value !== LARGE_VALUE) {
+    failures.push(`native transfer value: want ${LARGE_VALUE} got ${nativeCheck?.safeFields?.value}`);
+  }
+  assertNoNumbers(nativeCheck?.call, "native.call", failures);
+  assertNoNumbers(nativeCheck?.safeFields, "native.safeFields", failures);
+}
+
+const emptyOut = globalThis.txvVerify(JSON.stringify({
+  ...tx,
+  to: PRESENTATION_RECIPIENT,
+  value: "0",
+  data: "0x",
+  operation: 0,
+  nonce: 17,
+}));
+if (emptyOut?.error) {
+  failures.push(`empty calldata vector returned an error: ${emptyOut.error}`);
+} else if (emptyOut.contractChecks?.[0]?.call?.functionName !== "No calldata") {
+  failures.push(`empty calldata label: want No calldata got ${emptyOut.contractChecks?.[0]?.call?.functionName}`);
+}
+
+const UNKNOWN_CALLDATA = "0xdeadbeef00000001";
+const unknownOut = globalThis.txvVerify(JSON.stringify({
+  ...tx,
+  to: PRESENTATION_RECIPIENT,
+  value: "0",
+  data: UNKNOWN_CALLDATA,
+  operation: 0,
+  nonce: 18,
+}));
+if (unknownOut?.error) {
+  failures.push(`unknown call vector returned an error: ${unknownOut.error}`);
+} else {
+  const unknownCall = unknownOut.contractChecks?.[0]?.call;
+  if (unknownCall?.functionName !== "Unknown function"
+      || unknownCall?.selector !== "0xdeadbeef"
+      || unknownCall?.target !== PRESENTATION_RECIPIENT
+      || unknownCall?.rawCalldata !== UNKNOWN_CALLDATA) {
+    failures.push(`unknown call is incomplete: ${JSON.stringify(unknownCall)}`);
   }
 }
 
@@ -139,6 +223,22 @@ if (nestedOut?.error) {
     if (ledger.approveHash === inner.approveHash) {
       failures.push("nested: ledger and inner share a safeTxHash, so one of them is not bound");
     }
+    if (ledger.safeFields?.to?.toLowerCase() !== nestedTx.nested.to.toLowerCase()
+        || ledger.safeFields?.value !== "0"
+        || ledger.safeFields?.data !== nestedTx.nested.data
+        || ledger.safeFields?.operation !== "0"
+        || ledger.safeFields?.nonce !== "9") {
+      failures.push(`nested ledger.safeFields do not match the exact signing fields: ${JSON.stringify(ledger.safeFields)}`);
+    }
+    if (inner.safeFields?.to?.toLowerCase() !== tx.to.toLowerCase()
+        || inner.safeFields?.value !== "0"
+        || inner.safeFields?.data !== tx.data
+        || inner.safeFields?.operation !== "1"
+        || inner.safeFields?.nonce !== "15") {
+      failures.push(`nested inner.safeFields do not match the exact approved fields: ${JSON.stringify(inner.safeFields)}`);
+    }
+    assertNoNumbers(ledger.safeFields, "nested.ledger.safeFields", failures);
+    assertNoNumbers(inner.safeFields, "nested.inner.safeFields", failures);
     // Each half answers to its own hash: the parent's is what the signer asked about, the child's
     // is what the parent's calldata approves.
     const bound = globalThis.txvVerify(JSON.stringify({
@@ -163,3 +263,19 @@ if (failures.length > 0) {
 }
 console.log("parity: wasm matches core/hashing_test.go (domainHash, messageHash, contractChecks[0])");
 process.exit(0);
+
+function assertNoNumbers(value, path, problems) {
+  if (typeof value === "number") {
+    problems.push(`${path} crossed Go/WASM/JS as number ${value}`);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoNumbers(item, `${path}[${index}]`, problems));
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [field, item] of Object.entries(value)) {
+      assertNoNumbers(item, `${path}.${field}`, problems);
+    }
+  }
+}

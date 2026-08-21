@@ -90,7 +90,9 @@ jobs:
       # wasm`, so this is the only thing in CI that catches a broken wasm export.
       - run:
           name: Build wasm target
-          command: GOOS=js GOARCH=wasm go build -o /dev/null ./cmd/wasm
+          command: |
+            GOOS=js GOARCH=wasm go build -o /dev/null ./cmd/wasm
+            GOOS=js GOARCH=wasm go test -exec="bash $(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./cmd/wasm
       - run:
           name: Build site
           command: ./scripts/build-site.sh
