@@ -39,18 +39,24 @@
         <button id="startBtn">Start Display</button>
 
         <div class="verify-mode">
-            <div class="input-group">
-                <label class="visually-hidden" for="verifyNetwork">Network</label>
-                <select id="verifyNetwork">
-                    <option value="1">Ethereum</option>
-                    <option value="10">OP Mainnet</option>
-                    <option value="8453">Base</option>
-                    <option value="11155111">Sepolia</option>
-                </select>
-                <label class="visually-hidden" for="verifySafe">Safe address</label>
-                <input type="text" id="verifySafe" placeholder="Safe address">
-                <label class="visually-hidden" for="verifyNonce">Nonce</label>
-                <input type="text" id="verifyNonce" placeholder="Nonce">
+            <div class="verify-lookup-fields">
+                <label class="verify-lookup-field" for="verifyNetwork">
+                    <span class="verify-lookup-label">Network</span>
+                    <select id="verifyNetwork">
+                        <option value="1">Ethereum</option>
+                        <option value="10">OP Mainnet</option>
+                        <option value="8453">Base</option>
+                        <option value="11155111">Sepolia</option>
+                    </select>
+                </label>
+                <label class="verify-lookup-field" for="verifySafe">
+                    <span class="verify-lookup-label">Safe address</span>
+                    <input type="text" id="verifySafe" placeholder="Safe address">
+                </label>
+                <label class="verify-lookup-field" for="verifyNonce">
+                    <span class="verify-lookup-label">Nonce</span>
+                    <input type="text" id="verifyNonce" placeholder="Nonce">
+                </label>
             </div>
             <button id="verifyBtn">Verify</button>
             <div class="verify-panel" id="verifyPanel" role="status" aria-live="polite"></div>

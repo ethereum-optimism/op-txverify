@@ -81,6 +81,7 @@ select {
 
 .input-group input[type="text"] {
     flex-grow: 1;
+    min-width: 0;
     margin-right: 10px;
 }
 
@@ -126,6 +127,7 @@ button {
     border-radius: 50px;
     width: 100%;
     max-width: 250px;
+    min-height: 44px;
     transition: all 0.2s ease;
 }
 
@@ -298,6 +300,28 @@ button:disabled {
     text-align: left;
 }
 
+.verify-lookup-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.verify-lookup-field {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    color: #666;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.verify-lookup-field select,
+.verify-lookup-field input[type="text"] {
+    min-width: 0;
+    min-height: 44px;
+    margin: 0;
+}
+
 .verify-panel:empty {
     display: none;
 }
@@ -305,6 +329,7 @@ button:disabled {
 .verify-panel {
     --verify-danger-text: #B00020;
     --verify-danger-accent: #FF0420;
+    min-width: 0;
 }
 
 .verify-panel h3 {
@@ -314,6 +339,7 @@ button:disabled {
 
 .verify-fields {
     margin: 0;
+    min-width: 0;
 }
 
 .verify-field {
@@ -322,11 +348,14 @@ button:disabled {
     gap: 8px;
     padding: 7px 0;
     border-bottom: 1px solid #eee;
+    min-width: 0;
 }
 
 .verify-field dt {
     color: #666;
     font-size: 13px;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .verify-field dd {
@@ -360,6 +389,8 @@ button:disabled {
     border: 1px solid #ddd;
     border-radius: 12px;
     background: #fafafa;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .verify-action h4 {
@@ -401,6 +432,7 @@ button:disabled {
 .verify-hash-source {
     display: block;
     margin-bottom: 3px;
+    overflow-wrap: anywhere;
 }
 
 .verify-type {
@@ -414,6 +446,8 @@ button:disabled {
 .verify-values {
     margin: 4px 0;
     padding-left: 22px;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .verify-values > li + li {
@@ -434,6 +468,8 @@ button:disabled {
     padding: 10px 12px;
     border: 1px solid #ddd;
     border-radius: 10px;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .verify-raw summary {
@@ -449,6 +485,13 @@ button:disabled {
 .verify-note {
     font-size: 12px;
     color: #666;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+    .verify-lookup-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* A version indicator, not an integrity check: serve-time injection never touches the artifact

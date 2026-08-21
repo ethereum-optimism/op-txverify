@@ -111,6 +111,16 @@ const txPlaceholder = page.match(/id="txInput"[^>]*placeholder="([^"]*)"/)[1];
 report('the transaction placeholder fits on a phone', txPlaceholder.length <= 19,
   `${txPlaceholder.length} characters`, 'at most 19 characters');
 
+// The verifier lookup is a distinct form: sharing the landing page's flex row made its second and
+// third controls disappear off a phone-sized viewport. Keep its visible labels and responsive
+// layout as an inexpensive guard alongside the browser containment check.
+const lookupMarkup = page.match(/<div class="verify-lookup-fields">([\s\S]*?)<\/div>/)?.[1] || '';
+report('verifier lookup controls have dedicated visible field labels',
+  ['Network', 'Safe address', 'Nonce'].every(label =>
+    lookupMarkup.includes(`<span class="verify-lookup-label">${label}</span>`)) &&
+  ['verifyNetwork', 'verifySafe', 'verifyNonce'].every(id => lookupMarkup.includes(`id="${id}"`)),
+  lookupMarkup, 'Network, Safe address, and Nonce labels with the existing control ids');
+
 // A FastLZ control byte below 32 is a literal run of control+1 bytes, so runs of at most 32 bytes
 // encode any text as itself. Enough to exercise the ?txz= path without a compressor.
 const fastLZLiterals = (text) => {
