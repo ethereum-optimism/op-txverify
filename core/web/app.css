@@ -302,6 +302,11 @@ button:disabled {
     display: none;
 }
 
+.verify-panel {
+    --verify-danger-text: #B00020;
+    --verify-danger-accent: #FF0420;
+}
+
 .verify-panel h3 {
     font-size: 14px;
     margin: 20px 0 8px;
@@ -339,7 +344,7 @@ button:disabled {
 
 .verify-warn dt,
 .verify-warn dd {
-    color: #FF0420;
+    color: var(--verify-danger-text);
     font-weight: 600;
 }
 
@@ -369,7 +374,7 @@ button:disabled {
 }
 
 .verify-action-delegate {
-    border: 2px solid #FF0420;
+    border: 2px solid var(--verify-danger-accent);
 }
 
 .verify-action-number {
@@ -381,12 +386,12 @@ button:disabled {
 
 .verify-operation-warn,
 .verify-intent-warning {
-    color: #FF0420;
+    color: var(--verify-danger-text);
 }
 
 .verify-intent-warning {
     padding: 12px;
-    border: 2px solid #FF0420;
+    border: 2px solid var(--verify-danger-accent);
     border-radius: 8px;
     background: #fff4f5;
     font-size: 14px;

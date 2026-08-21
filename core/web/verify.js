@@ -198,7 +198,54 @@ function isArgument(value) {
     return value !== null && typeof value === 'object' &&
         Object.prototype.hasOwnProperty.call(value, 'name') &&
         Object.prototype.hasOwnProperty.call(value, 'type') &&
-        Object.prototype.hasOwnProperty.call(value, 'value');
+        Object.prototype.hasOwnProperty.call(value, 'value') &&
+        nonemptyString(value.name) && nonemptyString(value.type);
+}
+
+function nonemptyString(value) {
+    return typeof value === 'string' && value.trim() !== '';
+}
+
+// The WASM boundary is local, but rendering a malformed object as a known action would still turn
+// missing presentation data into a false statement. Normalize every call once and fail closed to an
+// explicit unknown action before either the renderer or final status inspects it.
+function normalizeCall(call) {
+    const validObject = call !== null && typeof call === 'object' && !Array.isArray(call);
+    const source = validObject ? call : {};
+    const functionName = nonemptyString(source.functionName)
+        ? source.functionName
+        : 'Unknown function';
+    const operationValid = source.operation === 'CALL' || source.operation === 'DELEGATECALL';
+    const targetValid = nonemptyString(source.target);
+    const argumentsValid = source.arguments === undefined ||
+        (Array.isArray(source.arguments) && source.arguments.every(isArgument));
+    const callsValid = source.calls === undefined || Array.isArray(source.calls);
+    const signatureRequired = !['Unknown function', 'Send native ETH', 'No calldata']
+        .includes(functionName);
+    const signatureValid = !signatureRequired || nonemptyString(source.signature);
+    const malformed = !validObject || functionName === 'Unknown function' || !operationValid ||
+        !targetValid || !argumentsValid || !callsValid || !signatureValid;
+    const rawCalldata = nonemptyString(source.rawCalldata)
+        ? source.rawCalldata
+        : '(missing calldata)';
+    const selector = nonemptyString(source.selector)
+        ? source.selector
+        : (rawCalldata.startsWith('0x') ? rawCalldata.slice(0, 10) : '(missing selector)');
+
+    const normalized = {
+        target: targetValid ? source.target : '(missing target)',
+        operation: operationValid ? source.operation : '(unknown)',
+        functionName: malformed ? 'Unknown function' : functionName,
+        calls: callsValid && Array.isArray(source.calls) ? source.calls.map(normalizeCall) : [],
+    };
+    if (nonemptyString(source.targetLabel)) normalized.targetLabel = source.targetLabel;
+    if (!malformed && nonemptyString(source.signature)) normalized.signature = source.signature;
+    if (!malformed && Array.isArray(source.arguments)) normalized.arguments = source.arguments;
+    if (normalized.functionName === 'Unknown function') {
+        normalized.selector = selector;
+        normalized.rawCalldata = rawCalldata;
+    }
+    return normalized;
 }
 
 function renderArgument(argument) {
@@ -237,7 +284,8 @@ function renderTarget(call) {
     return `${label}<code>${esc(call.target)}</code>`;
 }
 
-function renderCall(call, path = []) {
+function renderCall(call, path = [], normalized = false) {
+    if (!normalized) call = normalizeCall(call);
     const functionName = call.functionName || 'Unknown function';
     const operation = call.operation || '(unknown)';
     const delegatecall = operation === 'DELEGATECALL';
@@ -284,7 +332,7 @@ function renderCall(call, path = []) {
     if (Array.isArray(call.calls) && call.calls.length > 0) {
         html += '<section class="verify-subactions"><h5>Nested actions</h5>';
         html += call.calls.map((subcall, index) =>
-            renderCall(subcall, [...path, index + 1])).join('');
+            renderCall(subcall, [...path, index + 1], true)).join('');
         html += '</section>';
     }
     return html + '</article>';
@@ -314,7 +362,8 @@ function hashRow(label, contractValue, localValue) {
     );
 }
 
-function renderCheck(check, onchain, chainId, agree) {
+function renderCheck(check, onchain, chainId, agree, normalized = false) {
+    const call = normalized ? check.call : normalizeCall(check.call);
     let html = `<section class="verify-check"><h3>${check.label === 'ledger'
         ? 'Compare these to your device'
         : 'The nested transaction being approved'}</h3>`;
@@ -341,7 +390,7 @@ function renderCheck(check, onchain, chainId, agree) {
     html += '</dl>';
 
     html += `<h3>${check.label === 'ledger' ? 'What you are signing' : 'What is being approved'}</h3>`;
-    html += renderCall(check.call);
+    html += renderCall(call, [], true);
     html += '<details class="verify-raw" open><summary>Raw transaction fields</summary>' +
         renderSafeFields(check.safeFields) + '</details>';
 
@@ -355,9 +404,10 @@ function renderCheck(check, onchain, chainId, agree) {
     return html + '</section>';
 }
 
-function hasUnknownCall(call) {
+function hasUnknownCall(call, normalized = false) {
+    if (!normalized) call = normalizeCall(call);
     return call.functionName === 'Unknown function' ||
-        (Array.isArray(call.calls) && call.calls.some(hasUnknownCall));
+        call.calls.some(subcall => hasUnknownCall(subcall, true));
 }
 
 // Safe 1.5.0 removed encodeTransactionData; getTransactionHash returns only the final hash, which the
@@ -460,9 +510,10 @@ async function runVerify(run) {
         const agree = onchain.domainHash.toLowerCase() === check.domainHash.toLowerCase()
             && onchain.messageHash.toLowerCase() === check.messageHash.toLowerCase();
 
+        const call = normalizeCall(check.call);
         mismatch ||= !agree;
-        unknownIntent ||= hasUnknownCall(check.call);
-        html += renderCheck(check, onchain, tx.chain, agree);
+        unknownIntent ||= hasUnknownCall(call, true);
+        html += renderCheck({ ...check, call }, onchain, tx.chain, agree, true);
     }
 
     if (!current()) return;

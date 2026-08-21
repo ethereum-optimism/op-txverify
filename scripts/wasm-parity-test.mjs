@@ -172,6 +172,28 @@ if (unknownOut?.error) {
   }
 }
 
+const MALFORMED_KNOWN_CALLDATA = "0x13af4035"; // setOwner(address), missing the address argument.
+const malformedKnownOut = globalThis.txvVerify(JSON.stringify({
+  ...tx,
+  to: PRESENTATION_RECIPIENT,
+  value: "0",
+  data: MALFORMED_KNOWN_CALLDATA,
+  operation: 0,
+  nonce: 20,
+}));
+if (malformedKnownOut?.error) {
+  failures.push(`malformed known call returned an error: ${malformedKnownOut.error}`);
+} else {
+  const malformedKnownCall = malformedKnownOut.contractChecks?.[0]?.call;
+  if (malformedKnownCall?.functionName !== "Unknown function"
+      || malformedKnownCall?.selector !== MALFORMED_KNOWN_CALLDATA
+      || malformedKnownCall?.target !== PRESENTATION_RECIPIENT
+      || malformedKnownCall?.rawCalldata !== MALFORMED_KNOWN_CALLDATA
+      || "signature" in malformedKnownCall) {
+    failures.push(`malformed known call did not fail closed: ${JSON.stringify(malformedKnownCall)}`);
+  }
+}
+
 for (const shortCalldata of ["0x12", "0x1234", "0x123456"]) {
   const shortOut = globalThis.txvVerify(JSON.stringify({
     ...tx,

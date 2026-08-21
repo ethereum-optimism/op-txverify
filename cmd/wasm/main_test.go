@@ -168,6 +168,26 @@ func TestContractChecksGiveShortUnknownCallsAnIdentity(t *testing.T) {
 	}
 }
 
+func TestContractChecksTreatMalformedKnownCallAsUnknown(t *testing.T) {
+	raw := "0x13af4035" // setOwner(address) selector with its address argument missing.
+	tx := core.SafeTransaction{
+		Safe: testSafe, SafeVersion: "1.4.1", Chain: 1, To: testRecipient,
+		Value: big.NewInt(0), Data: raw, GasToken: common.Address{}.Hex(), RefundReceiver: common.Address{}.Hex(),
+	}
+	parsed, err := core.ParseTransactionData(tx.To, tx.Data, core.MainnetChainID, core.VerifyOptions{})
+	if err != nil {
+		t.Fatalf("ParseTransactionData: %v", err)
+	}
+	call := requireMap(t, oneJSONCheck(t, testResult(tx, *parsed))["call"], "call")
+	assertFields(t, call, map[string]any{
+		"functionName": "Unknown function", "target": testRecipient, "operation": "CALL",
+		"selector": "0x13af4035", "rawCalldata": raw,
+	})
+	if _, ok := call["signature"]; ok {
+		t.Fatal("malformed known call unexpectedly has a trusted signature")
+	}
+}
+
 func TestContractChecksDoNotLeakPresentationMetadataIntoRawResult(t *testing.T) {
 	known := parsedCall(t, "setOwner(address)", testRecipient, common.HexToAddress(testSafe))
 	tx := core.SafeTransaction{
