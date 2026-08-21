@@ -71,7 +71,6 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: functionInfo.Name,
-			FunctionData: functionInfo.Signature,
 			RawData:      rawData,
 		}, nil
 	}
@@ -111,7 +110,6 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: functionInfo.Name,
-			FunctionData: functionInfo.Signature,
 			Calldata:     rawData,
 			SubCalls:     subcalls,
 		}, nil
@@ -122,7 +120,6 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 		Target:       to,
 		TargetName:   targetName,
 		FunctionName: functionInfo.Name,
-		FunctionData: functionInfo.Signature,
 		Calldata:     rawData,
 		ParsedData:   parsedArgs,
 	}, nil
@@ -329,6 +326,9 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 				// Extract operation.
 				operation := data[pos]
 				pos++
+				if operation != 0 && operation != 1 {
+					return nil, fmt.Errorf("invalid multiSend operation %d: Safe allows only 0 (CALL) or 1 (DELEGATECALL)", operation)
+				}
 
 				// Extract to address
 				to := common.BytesToAddress(data[pos : pos+20])

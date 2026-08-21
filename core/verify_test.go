@@ -84,16 +84,32 @@ func aggregate3ValueData(t *testing.T, calls []subcall) string {
 // multiSendData encodes the operation, target, value, length and data records multiSend
 // concatenates into a single bytes argument.
 func multiSendData(t *testing.T, calls []subcall) string {
+	return multiSendDataWithOperation(t, 0, calls)
+}
+
+func multiSendDataWithOperation(t *testing.T, operation byte, calls []subcall) string {
 	t.Helper()
 	var packed []byte
 	for _, call := range calls {
-		packed = append(packed, 0)
+		packed = append(packed, operation)
 		packed = append(packed, call.target.Bytes()...)
 		packed = append(packed, common.BigToHash(big.NewInt(0)).Bytes()...)
 		packed = append(packed, common.BigToHash(big.NewInt(int64(len(call.data)))).Bytes()...)
 		packed = append(packed, call.data...)
 	}
 	return packCall(t, "multiSend", packed)
+}
+
+func TestParseTransactionDataRejectsInvalidMultiSendOperation(t *testing.T) {
+	data := multiSendDataWithOperation(t, 2, []subcall{{
+		target: common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		data:   approveHashData("0x" + strings.Repeat("1", 64)),
+	}})
+
+	_, err := ParseTransactionData(SafeMultisendAddress, data, MainnetChainID, VerifyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "multiSend operation 2") {
+		t.Fatalf("ParseTransactionData error = %v, want invalid multiSend operation 2", err)
+	}
 }
 
 func TestVerifyTransaction_RejectsSilentlyCoercedFields(t *testing.T) {

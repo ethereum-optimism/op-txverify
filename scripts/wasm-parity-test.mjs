@@ -54,6 +54,11 @@ if (out?.error) {
 const result = typeof out?.result === "string" ? JSON.parse(out.result) : out?.result;
 
 const failures = [];
+if (typeof out?.result !== "string") {
+  failures.push(`result: want raw JSON string, got ${typeof out?.result}`);
+} else if (out.result.includes('"functionData"') || out.result.includes('"calldata"')) {
+  failures.push(`result leaked presentation metadata: ${out.result}`);
+}
 for (const [field, want] of Object.entries(expected)) {
   const got = result?.[field];
   if (got !== want) failures.push(`${field}:\n  want ${want}\n  got  ${got}`);
@@ -164,6 +169,22 @@ if (unknownOut?.error) {
       || unknownCall?.target !== PRESENTATION_RECIPIENT
       || unknownCall?.rawCalldata !== UNKNOWN_CALLDATA) {
     failures.push(`unknown call is incomplete: ${JSON.stringify(unknownCall)}`);
+  }
+}
+
+for (const shortCalldata of ["0x12", "0x1234", "0x123456"]) {
+  const shortOut = globalThis.txvVerify(JSON.stringify({
+    ...tx,
+    to: PRESENTATION_RECIPIENT,
+    value: "0",
+    data: shortCalldata,
+    operation: 0,
+    nonce: 19,
+  }));
+  if (shortOut?.error) {
+    failures.push(`short unknown ${shortCalldata} returned an error: ${shortOut.error}`);
+  } else if (shortOut.contractChecks?.[0]?.call?.selector !== shortCalldata) {
+    failures.push(`short unknown selector: want ${shortCalldata} got ${shortOut.contractChecks?.[0]?.call?.selector}`);
   }
 }
 

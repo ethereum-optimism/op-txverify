@@ -136,7 +136,7 @@ func structuredCall(call core.CallData, value *big.Int, operation int) (map[stri
 		calldata = call.RawData
 	}
 	cleanData := strings.TrimPrefix(calldata, "0x")
-	if cleanData == "" && call.FunctionData == "" {
+	if cleanData == "" {
 		if value != nil && value.Sign() > 0 {
 			view["functionName"] = "Send native ETH"
 			view["arguments"] = []any{
@@ -149,15 +149,17 @@ func structuredCall(call core.CallData, value *big.Int, operation int) (map[stri
 		return addSubcalls(view, call.SubCalls)
 	}
 
-	info, decoded, err := decodeCallArguments(call, cleanData)
+	info, decoded, err := decodeCallArguments(cleanData)
 	if err != nil {
 		return nil, err
 	}
 	if info == nil {
 		view["functionName"] = "Unknown function"
-		if len(cleanData) >= 8 {
-			view["selector"] = "0x" + strings.ToLower(cleanData[:8])
+		selector := cleanData
+		if len(selector) > 8 {
+			selector = selector[:8]
 		}
+		view["selector"] = "0x" + strings.ToLower(selector)
 		view["rawCalldata"] = "0x" + cleanData
 		return addSubcalls(view, call.SubCalls)
 	}
@@ -170,16 +172,7 @@ func structuredCall(call core.CallData, value *big.Int, operation int) (map[stri
 	return addSubcalls(view, call.SubCalls)
 }
 
-func decodeCallArguments(call core.CallData, cleanData string) (*core.FunctionInfo, []any, error) {
-	if cleanData == "" {
-		for _, candidate := range core.KnownFunctions {
-			if candidate.Signature == call.FunctionData {
-				info := candidate
-				return &info, nil, nil
-			}
-		}
-		return nil, nil, nil
-	}
+func decodeCallArguments(cleanData string) (*core.FunctionInfo, []any, error) {
 	if len(cleanData) < 8 {
 		return nil, nil, nil
 	}

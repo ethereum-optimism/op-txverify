@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/ethereum-optimism/op-txverify/core"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -31,6 +33,15 @@ func TestContractChecksExposeTypedArgumentsWithoutJSONNumbers(t *testing.T) {
 		[]common.Address{common.HexToAddress(testRecipient)},
 		[]*big.Int{mustBigInt(t, testLargeInt), big.NewInt(2)},
 		[][]byte{{0xde, 0xad}}, "Upgrade", uint8(7))
+	type call3 struct {
+		Target       common.Address
+		AllowFailure bool
+		CallData     []byte
+	}
+	parentCall := parsedCall(t, core.Aggregate3Sig, core.Multicall3Delegatecall, []call3{
+		{Target: common.HexToAddress(testRecipient), CallData: common.FromHex(tupleCall.Calldata)},
+		{Target: common.HexToAddress(testRecipient), CallData: common.FromHex(arrayCall.Calldata)},
+	})
 
 	result := testResult(core.SafeTransaction{
 		Safe: testSafe, SafeVersion: "1.4.1", Chain: 1, To: core.Multicall3Delegatecall,
@@ -38,11 +49,7 @@ func TestContractChecksExposeTypedArgumentsWithoutJSONNumbers(t *testing.T) {
 		SafeTxGas: 11, BaseGas: 12, GasPrice: 13,
 		GasToken:       core.StripChainPrefix("eth:0x2222222222222222222222222222222222222222"),
 		RefundReceiver: "0x3333333333333333333333333333333333333333", Nonce: 14,
-	}, core.CallData{
-		Target: core.Multicall3Delegatecall, TargetName: "MULTICALL3 DELEGATECALL",
-		FunctionName: "aggregate3", FunctionData: core.Aggregate3Sig, IsDelegateCall: true,
-		SubCalls: []core.CallData{*tupleCall, *arrayCall},
-	})
+	}, *parentCall)
 
 	check := oneJSONCheck(t, result)
 	if _, ok := check["decode"]; ok {
@@ -145,6 +152,140 @@ func TestContractChecksDescribeUnknownCall(t *testing.T) {
 	}
 }
 
+func TestContractChecksGiveShortUnknownCallsAnIdentity(t *testing.T) {
+	for _, raw := range []string{"0x12", "0x1234", "0x123456"} {
+		t.Run(raw, func(t *testing.T) {
+			tx := core.SafeTransaction{
+				Safe: testSafe, SafeVersion: "1.4.1", Chain: 1, To: testRecipient,
+				Value: big.NewInt(0), Data: raw, GasToken: common.Address{}.Hex(), RefundReceiver: common.Address{}.Hex(),
+			}
+			result := testResult(tx, core.CallData{Target: testRecipient, FunctionName: "unknown", RawData: raw})
+			call := requireMap(t, oneJSONCheck(t, result)["call"], "call")
+			assertFields(t, call, map[string]any{
+				"functionName": "Unknown function", "selector": raw, "rawCalldata": raw,
+			})
+		})
+	}
+}
+
+func TestContractChecksDoNotLeakPresentationMetadataIntoRawResult(t *testing.T) {
+	known := parsedCall(t, "setOwner(address)", testRecipient, common.HexToAddress(testSafe))
+	tx := core.SafeTransaction{
+		Safe: testSafe, SafeVersion: "1.4.1", Chain: 1, To: testRecipient,
+		Value: big.NewInt(0), Data: known.Calldata, GasToken: common.Address{}.Hex(), RefundReceiver: common.Address{}.Hex(),
+	}
+	result, err := core.VerifyTransaction(tx, core.VerifyOptions{})
+	if err != nil {
+		t.Fatalf("VerifyTransaction: %v", err)
+	}
+	before, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result before presentation: %v", err)
+	}
+	if strings.Contains(string(before), `"functionData"`) || strings.Contains(string(before), `"calldata"`) {
+		t.Fatalf("raw result leaked presentation metadata: %s", before)
+	}
+	if _, err := contractChecks(result); err != nil {
+		t.Fatalf("contractChecks: %v", err)
+	}
+	after, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result after presentation: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("presentation mutated raw result\nbefore: %s\nafter:  %s", before, after)
+	}
+}
+
+func TestExactABIValueCoversKnownShapes(t *testing.T) {
+	bytes32 := [32]byte{0xde, 0xad}
+	function := [24]byte{0xbe, 0xef}
+	tupleType := mustABIType(t, "tuple", []abi.ArgumentMarshaling{
+		{Name: "amount", Type: "uint256"},
+		{Name: "recipient", Type: "address"},
+	})
+	nestedTupleArrayType := mustABIType(t, "tuple[]", []abi.ArgumentMarshaling{
+		{Name: "config", Type: "tuple", Components: []abi.ArgumentMarshaling{
+			{Name: "delay", Type: "uint64"},
+			{Name: "enabled", Type: "bool"},
+		}},
+		{Name: "payloads", Type: "bytes[]"},
+	})
+	type tupleValue struct {
+		Amount    *big.Int
+		Recipient common.Address
+	}
+	type nestedConfig struct {
+		Delay   uint64
+		Enabled bool
+	}
+	type nestedTupleValue struct {
+		Config   nestedConfig
+		Payloads [][]byte
+	}
+
+	tests := []struct {
+		name  string
+		typ   abi.Type
+		value any
+		want  any
+	}{
+		{"uint8", mustABIType(t, "uint8", nil), uint8(7), "7"},
+		{"uint32", mustABIType(t, "uint32", nil), uint32(32), "32"},
+		{"uint64", mustABIType(t, "uint64", nil), uint64(64), "64"},
+		{"uint256", mustABIType(t, "uint256", nil), mustBigInt(t, testLargeInt), testLargeInt},
+		{"int8", mustABIType(t, "int8", nil), int8(-7), "-7"},
+		{"int32", mustABIType(t, "int32", nil), int32(-32), "-32"},
+		{"int64", mustABIType(t, "int64", nil), int64(-64), "-64"},
+		{"int256", mustABIType(t, "int256", nil), big.NewInt(-256), "-256"},
+		{"address", mustABIType(t, "address", nil), common.HexToAddress(testRecipient), testRecipient},
+		{"bool", mustABIType(t, "bool", nil), true, true},
+		{"bytes", mustABIType(t, "bytes", nil), []byte{0xde, 0xad}, "0xdead"},
+		{"bytes32", mustABIType(t, "bytes32", nil), bytes32, "0xdead" + strings.Repeat("00", 30)},
+		{"string", mustABIType(t, "string", nil), "hello", "hello"},
+		{"function", mustABIType(t, "function", nil), function, "0xbeef" + strings.Repeat("00", 22)},
+		{"slice", mustABIType(t, "address[]", nil), []common.Address{common.HexToAddress(testRecipient)}, []any{testRecipient}},
+		{"array", mustABIType(t, "uint32[2]", nil), [2]uint32{1, 2}, []any{"1", "2"}},
+		{"tuple", tupleType, tupleValue{mustBigInt(t, testLargeInt), common.HexToAddress(testRecipient)}, []any{
+			map[string]any{"name": "amount", "type": "uint256", "value": testLargeInt},
+			map[string]any{"name": "recipient", "type": "address", "value": testRecipient},
+		}},
+		{"nested tuple slice", nestedTupleArrayType, []nestedTupleValue{{
+			Config: nestedConfig{Delay: 12, Enabled: true}, Payloads: [][]byte{{0xab}, {0xcd}},
+		}}, []any{[]any{
+			map[string]any{"name": "config", "type": "(uint64,bool)", "value": []any{
+				map[string]any{"name": "delay", "type": "uint64", "value": "12"},
+				map[string]any{"name": "enabled", "type": "bool", "value": true},
+			}},
+			map[string]any{"name": "payloads", "type": "bytes[]", "value": []any{"0xab", "0xcd"}},
+		}}},
+	}
+
+	covered := make(map[string]bool)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := exactABIValue(tc.typ, tc.value)
+			if err != nil {
+				t.Fatalf("exactABIValue: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("exactABIValue(%s) = %#v, want %#v", tc.typ.String(), got, tc.want)
+			}
+		})
+		collectABIShapes(tc.typ, covered)
+	}
+
+	for _, function := range core.KnownFunctions {
+		for _, input := range function.ABI.Inputs {
+			assertABIShapeCovered(t, input.Type, covered, function.Signature)
+		}
+	}
+
+	if _, err := exactABIValue(abi.Type{T: abi.HashTy}, [32]byte{}); err == nil {
+		t.Fatal("exactABIValue accepted unsupported HashTy")
+	}
+}
+
 func parsedCall(t *testing.T, signature, target string, values ...any) *core.CallData {
 	t.Helper()
 	selector := hex.EncodeToString(crypto.Keccak256([]byte(signature))[:4])
@@ -162,6 +303,67 @@ func parsedCall(t *testing.T, signature, target string, values ...any) *core.Cal
 		t.Fatalf("parse %s: %v", signature, err)
 	}
 	return call
+}
+
+func mustABIType(t *testing.T, typeName string, components []abi.ArgumentMarshaling) abi.Type {
+	t.Helper()
+	typ, err := abi.NewType(typeName, "", components)
+	if err != nil {
+		t.Fatalf("abi.NewType(%q): %v", typeName, err)
+	}
+	return typ
+}
+
+func collectABIShapes(typ abi.Type, covered map[string]bool) {
+	covered[abiShape(typ)] = true
+	if typ.Elem != nil {
+		collectABIShapes(*typ.Elem, covered)
+	}
+	for _, elem := range typ.TupleElems {
+		collectABIShapes(*elem, covered)
+	}
+}
+
+func assertABIShapeCovered(t *testing.T, typ abi.Type, covered map[string]bool, signature string) {
+	t.Helper()
+	if !covered[abiShape(typ)] {
+		t.Errorf("%s uses uncovered ABI shape %s", signature, abiShape(typ))
+	}
+	if typ.Elem != nil {
+		assertABIShapeCovered(t, *typ.Elem, covered, signature)
+	}
+	for _, elem := range typ.TupleElems {
+		assertABIShapeCovered(t, *elem, covered, signature)
+	}
+}
+
+func abiShape(typ abi.Type) string {
+	switch typ.T {
+	case abi.IntTy:
+		return "int" + strconv.Itoa(typ.Size)
+	case abi.UintTy:
+		return "uint" + strconv.Itoa(typ.Size)
+	case abi.BoolTy:
+		return "bool"
+	case abi.StringTy:
+		return "string"
+	case abi.SliceTy:
+		return "slice"
+	case abi.ArrayTy:
+		return "array"
+	case abi.TupleTy:
+		return "tuple"
+	case abi.AddressTy:
+		return "address"
+	case abi.FixedBytesTy:
+		return "bytes" + strconv.Itoa(typ.Size)
+	case abi.BytesTy:
+		return "bytes"
+	case abi.FunctionTy:
+		return "function"
+	default:
+		return "unsupported:" + strconv.Itoa(int(typ.T))
+	}
 }
 
 func testResult(tx core.SafeTransaction, call core.CallData) *core.VerificationResult {
