@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"net"
+	"testing"
+)
 
 func TestParseInt(t *testing.T) {
 	tests := []struct {
@@ -22,6 +25,29 @@ func TestParseInt(t *testing.T) {
 		}
 		if err == nil && got != tc.want {
 			t.Fatalf("parseInt(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestListenLoopback_BindsOnlyLoopback(t *testing.T) {
+	listeners, err := listenLoopback(0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() {
+		for _, listener := range listeners {
+			_ = listener.Close()
+		}
+	}()
+
+	for _, listener := range listeners {
+		host, _, err := net.SplitHostPort(listener.Addr().String())
+		if err != nil {
+			t.Fatalf("unexpected address %q: %v", listener.Addr(), err)
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			t.Errorf("listening on %s, which is not loopback", listener.Addr())
 		}
 	}
 }

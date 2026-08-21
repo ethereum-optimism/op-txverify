@@ -7,6 +7,13 @@ executors:
     resource_class: medium+
     environment:
       GOFLAGS: -mod=readonly
+  # The plain cimg/go image ships no Node, which the page and wasm tests need.
+  go-node-executor:
+    docker:
+      - image: cimg/go:1.26.6-node
+    resource_class: medium+
+    environment:
+      GOFLAGS: -mod=readonly
 
 commands:
   setup-golangci:
@@ -75,6 +82,42 @@ jobs:
       - store_artifacts:
           path: coverage.out
 
+  build-site:
+    executor: go-node-executor
+    steps:
+      - checkout
+      # golangci-lint, `go build ./...` and `go vet ./...` all skip files behind `//go:build js &&
+      # wasm`, so this is the only thing in CI that catches a broken wasm export.
+      - run:
+          name: Build wasm target
+          command: GOOS=js GOARCH=wasm go build -o /dev/null ./cmd/wasm
+      - run:
+          name: Build site
+          command: ./scripts/build-site.sh
+      - run:
+          name: Assert wasm matches Go hashing
+          command: node scripts/wasm-parity-test.mjs
+      - run:
+          name: Test the page's pure functions
+          command: node scripts/web-test.mjs
+      - run:
+          name: Assert published allowlist
+          command: |
+            for f in site/index.html site/app.css site/app.js site/verify.js \
+                     site/wasm/main.wasm site/wasm/wasm_exec.js site/build-info.json; do
+              if [ ! -f "$f" ]; then
+                echo "missing expected file: $f"
+                exit 1
+              fi
+            done
+            for p in site/reader.html site/lib/qrscanner; do
+              if [ -e "$p" ]; then
+                echo "must not be published: $p"
+                exit 1
+              fi
+            done
+            find site -type f | sort
+
 workflows:
   ci:
     jobs:
@@ -82,3 +125,4 @@ workflows:
       - test:
           requires:
             - lint
+      - build-site

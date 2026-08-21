@@ -104,6 +104,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 	MainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
 		strings.ToLower(SafeMultisendCallOnly130): {Name: "GNOSIS SAFE MULTISEND (v1.3.0)", Decimals: 0},
+		strings.ToLower(SafeMultisendCallOnly141): {Name: "GNOSIS SAFE MULTISEND (v1.4.1)", Decimals: 0},
 		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
 		strings.ToLower(Multicall3Delegatecall):   {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
 		strings.ToLower(USDCMainnetAddress):       {Name: "USDC", Decimals: 6},
@@ -168,6 +169,7 @@ var MulticallAddresses = map[uint64]map[string]bool{
 	MainnetChainID: {
 		strings.ToLower(SafeMultisendAddress):     true,
 		strings.ToLower(SafeMultisendCallOnly130): true,
+		strings.ToLower(SafeMultisendCallOnly141): true,
 		strings.ToLower(Multicall3Address):        true,
 		strings.ToLower(Multicall3Delegatecall):   true,
 	},

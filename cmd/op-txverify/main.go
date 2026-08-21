@@ -63,7 +63,7 @@ func main() {
 					&cli.StringFlag{
 						Name:     "network",
 						Aliases:  []string{"n"},
-						Usage:    "Network name: ethereum, op, base (required)",
+						Usage:    "Network name: ethereum, op, base, sepolia (required)",
 						Required: true,
 					},
 					&cli.StringFlag{
@@ -98,7 +98,7 @@ func main() {
 					&cli.StringFlag{
 						Name:     "network",
 						Aliases:  []string{"n"},
-						Usage:    "Network name: ethereum, op, base (required)",
+						Usage:    "Network name: ethereum, op, base, sepolia (required)",
 						Required: true,
 					},
 					&cli.StringFlag{
@@ -124,12 +124,6 @@ func main() {
 				Name:  "qr",
 				Usage: "Scan a transaction QR code using your camera",
 				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:    "device",
-						Aliases: []string{"d"},
-						Usage:   "Camera device to use (defaults to system default)",
-						Value:   "",
-					},
 					&cli.StringFlag{
 						Name:    "url",
 						Aliases: []string{"u"},
@@ -208,7 +202,7 @@ func onlineAction(c *cli.Context) error {
 
 	// Validate network
 	if network != "ethereum" && network != "op" && network != "base" && network != "sepolia" {
-		return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
+		return fmt.Errorf("invalid network: %s (must be ethereum, op, base, or sepolia)", network)
 	}
 
 	// Strip the chain prefix if present
@@ -251,8 +245,8 @@ func downloadAction(c *cli.Context) error {
 	outputFile := c.String("output")
 
 	// Validate network
-	if network != "ethereum" && network != "op" && network != "base" {
-		return fmt.Errorf("invalid network: %s (must be ethereum, op, or base)", network)
+	if network != "ethereum" && network != "op" && network != "base" && network != "sepolia" {
+		return fmt.Errorf("invalid network: %s (must be ethereum, op, base, or sepolia)", network)
 	}
 
 	// Generate the transaction JSON
@@ -276,7 +270,6 @@ func downloadAction(c *cli.Context) error {
 }
 
 func qrAction(c *cli.Context) error {
-	deviceID := c.String("device")
 	rawURL := c.String("url")
 	outputFormat := c.String("output")
 	verbose := c.Bool("verbose")
@@ -291,7 +284,7 @@ func qrAction(c *cli.Context) error {
 		tx = *decodedTx
 	} else {
 		// Scan QR code from camera
-		data, err := core.ScanQRCode(deviceID)
+		data, err := core.ScanQRCode()
 		if err != nil {
 			return fmt.Errorf("failed to scan QR code: %w", err)
 		}
