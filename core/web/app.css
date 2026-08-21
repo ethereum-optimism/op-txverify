@@ -322,6 +322,20 @@ button:disabled {
     margin: 0;
 }
 
+.verify-safe-preview {
+    min-width: 0;
+    color: #333;
+    font-family: monospace;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.verify-safe-preview:empty {
+    display: none;
+}
+
 .verify-panel:empty {
     display: none;
 }

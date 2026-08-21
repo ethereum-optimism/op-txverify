@@ -43,6 +43,7 @@ const LOOKUP_KEY = 'op-txverify:lookup';
 const VERIFY_DOM = {
     network: document.getElementById('verifyNetwork'),
     safe: document.getElementById('verifySafe'),
+    safePreview: document.getElementById('verifySafePreview'),
     nonce: document.getElementById('verifyNonce'),
     btn: document.getElementById('verifyBtn'),
     panel: document.getElementById('verifyPanel'),
@@ -58,6 +59,10 @@ const IDLE_STATUS = DOM.status.textContent;
 let generation = 0;
 
 const VERIFY_INPUTS = [DOM.txInput, VERIFY_DOM.network, VERIFY_DOM.safe, VERIFY_DOM.nonce];
+
+function updateSafePreview() {
+    VERIFY_DOM.safePreview.textContent = (VERIFY_DOM.safe.value || '').trim();
+}
 
 function invalidateResults() {
     generation++;
@@ -544,6 +549,8 @@ for (const element of VERIFY_INPUTS) {
     element.addEventListener('input', invalidateResults);
     element.addEventListener('change', invalidateResults);
 }
+VERIFY_DOM.safe.addEventListener('input', updateSafePreview);
+VERIFY_DOM.safe.addEventListener('change', updateSafePreview);
 
 VERIFY_DOM.btn.addEventListener('click', async () => {
     invalidateResults();
@@ -564,5 +571,6 @@ window.addEventListener('DOMContentLoaded', () => {
     if (saved.network) VERIFY_DOM.network.value = saved.network;
     if (saved.safe) VERIFY_DOM.safe.value = saved.safe;
     if (saved.nonce) VERIFY_DOM.nonce.value = saved.nonce;
+    updateSafePreview();
     showBuildInfo();
 });

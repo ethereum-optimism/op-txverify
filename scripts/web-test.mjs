@@ -121,6 +121,11 @@ report('verifier lookup controls have dedicated visible field labels',
   ['verifyNetwork', 'verifySafe', 'verifyNonce'].every(id => lookupMarkup.includes(`id="${id}"`)),
   lookupMarkup, 'Network, Safe address, and Nonce labels with the existing control ids');
 
+report('a long Safe input has a readable full-address companion',
+  lookupMarkup.includes('id="verifySafePreview"') &&
+  readFileSync(join(web, 'verify.js'), 'utf8').includes('updateSafePreview'),
+  lookupMarkup, 'a verifier Safe preview updated from the input value');
+
 // A FastLZ control byte below 32 is a literal run of control+1 bytes, so runs of at most 32 bytes
 // encode any text as itself. Enough to exercise the ?txz= path without a compressor.
 const fastLZLiterals = (text) => {
