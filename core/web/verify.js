@@ -10,14 +10,88 @@
  * CHAIN_ID_TO_BASE_URL, DOM and state from app.js.
  */
 
-// One endpoint per chain is enough: the wasm recomputes the same hashes from the fetched
-// parameters, so a wrong preimage from an RPC shows up as a mismatch rather than a wrong hash.
-const CHAIN_ID_TO_RPC = {
+// PublicNode remains an availability fallback. The first candidate is a same-origin Netlify
+// function, which chooses an operator-configured upstream without exposing its URL or widening
+// CSP beyond `connect-src 'self'`.
+const CHAIN_ID_TO_PUBLIC_RPC = {
     1: 'https://ethereum-rpc.publicnode.com',
     10: 'https://optimism-rpc.publicnode.com',
     8453: 'https://base-rpc.publicnode.com',
     11155111: 'https://ethereum-sepolia-rpc.publicnode.com'
 };
+
+const RPC_ENDPOINT_CHAIN_CACHE = new Map();
+const RPC_TIMEOUT_MS = 5_000;
+
+class RPCAvailabilityError extends Error {}
+
+function rpcCandidates(chainId) {
+    const fallback = CHAIN_ID_TO_PUBLIC_RPC[chainId];
+    if (!fallback) throw new Error(`No RPC configured for chain ${chainId}`);
+    return [
+        { url: `/rpc/${chainId}`, name: 'same-origin operator RPC', sameOrigin: true },
+        { url: fallback, name: 'PublicNode RPC' },
+    ];
+}
+
+async function rpcRequest(endpoint, request) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+    let response;
+    try {
+        response = await fetch(endpoint.url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(request),
+            signal: controller.signal,
+        });
+    } catch {
+        clearTimeout(timer);
+        throw new RPCAvailabilityError(`${endpoint.name} is unavailable`);
+    }
+    try {
+        if (!response.ok) {
+            if ((endpoint.sameOrigin && response.status === 404) || response.status === 429 || response.status >= 500) {
+                throw new RPCAvailabilityError(`${endpoint.name} is unavailable`);
+            }
+            throw new Error(`${endpoint.name} rejected the request (${response.status})`);
+        }
+
+        let json;
+        try {
+            json = await response.json();
+        } catch {
+            throw new RPCAvailabilityError(`${endpoint.name} returned invalid JSON`);
+        }
+        if (!json || json.jsonrpc !== '2.0' || json.id !== request.id ||
+            (!Object.prototype.hasOwnProperty.call(json, 'result') && !json.error)) {
+            throw new RPCAvailabilityError(`${endpoint.name} returned an invalid RPC response`);
+        }
+        if (json.error) {
+            if (request.method === 'eth_chainId') {
+                throw new RPCAvailabilityError(`${endpoint.name} cannot verify its chain`);
+            }
+            throw new Error(`${endpoint.name} RPC error: ${json.error.message || 'unknown error'}`);
+        }
+        return json.result;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function verifyRPCChain(endpoint, chainId) {
+    if (RPC_ENDPOINT_CHAIN_CACHE.has(endpoint.url)) return;
+    const result = await rpcRequest(endpoint, {
+        jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [],
+    });
+    const returnedChainId = typeof result === 'string' && /^0x[0-9a-f]+$/i.test(result)
+        ? parseInt(result, 16)
+        : NaN;
+    if (returnedChainId !== chainId) {
+        throw new RPCAvailabilityError(`${endpoint.name} is configured for the wrong chain`);
+    }
+    RPC_ENDPOINT_CHAIN_CACHE.set(endpoint.url, true);
+}
 
 // Shown beside the hashes: a signer must be able to see which chain was verified, since the hash
 // comparison alone cannot reveal a wrong-chain lookup on Safe <= 1.2.0.
@@ -174,24 +248,24 @@ function parsePreimage(raw) {
 }
 
 async function ethCall(chainId, target, calldata) {
-    const rpc = CHAIN_ID_TO_RPC[chainId];
-    if (!rpc) throw new Error(`No RPC configured for chain ${chainId}`);
-
-    const response = await fetch(rpc, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'eth_call',
-            params: [{ to: target, data: calldata }, 'latest']
-        })
-    });
-    if (!response.ok) throw new Error(`RPC ${response.status} ${response.statusText}`);
-
-    const json = await response.json();
-    if (json.error) throw new Error(`RPC error: ${json.error.message}`);
-    return parsePreimage(json.result);
+    const unavailable = [];
+    for (const endpoint of rpcCandidates(chainId)) {
+        try {
+            await verifyRPCChain(endpoint, chainId);
+            // parsePreimage is deliberately inside the non-availability path: a successful
+            // eth_call is a signer-relevant on-chain result, never a reason to try another RPC.
+            return parsePreimage(await rpcRequest(endpoint, {
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'eth_call',
+                params: [{ to: target, data: calldata }, 'latest'],
+            }));
+        } catch (error) {
+            if (!(error instanceof RPCAvailabilityError)) throw error;
+            unavailable.push(error.message);
+        }
+    }
+    throw new Error(`RPC unavailable: ${unavailable.join('; ')}`);
 }
 
 function definitionRow(label, valueHTML, warn = false, labelIsHTML = false) {
@@ -403,11 +477,15 @@ function renderCheck(check, onchain, chainId, agree, normalized = false) {
     html += renderRawDetails(check.safeFields);
 
     const explorer = EXPLORERS[chainId];
-    if (explorer) {
-        html += '<p class="verify-note">To confirm without trusting this page, read ' +
+    if (check.label === 'ledger' && explorer) {
+        html += '<section class="verify-ceremony"><h3>Before you sign</h3><ol>' +
+            '<li>Confirm network, Safe, and decoded action.</li>' +
+            '<li>Compare domain and message hashes with the hardware wallet.</li>' +
+            '<li>Under the compromised-computer threat model, independently run ' +
             `<code>encodeTransactionData</code> on <a href="${esc(explorer + check.target)}` +
-            `#readProxyContract">this Safe's contract page</a> (Read as Proxy) with the raw ` +
-            'transaction fields above.</p>';
+            `#readProxyContract">this Safe's contract explorer</a> with the exact raw transaction fields shown.</li>` +
+            '<li><strong>DO NOT SIGN</strong> on any mismatch or when the action remains unknown.</li>' +
+            '</ol></section>';
     }
     return html + '</section>';
 }
@@ -456,7 +534,7 @@ async function runVerify(run) {
     // fields on 2 chains give the same Ledger hashes and a wrong-chain lookup would pass the hash
     // comparison while the addresses mean something else entirely.
     const chainId = parseInt(VERIFY_DOM.network.value, 10);
-    if (!CHAIN_ID_TO_RPC[chainId]) throw new Error('Select a supported network');
+    if (!CHAIN_ID_TO_PUBLIC_RPC[chainId]) throw new Error('Select a supported network');
 
     let txHash;
     if (typed) {

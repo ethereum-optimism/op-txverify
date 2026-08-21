@@ -20,6 +20,19 @@
     # Go release could change the compiler with no commit.
     GOTOOLCHAIN = "local"
 
+# The browser only ever calls this same-origin path. The function accepts no upstream URL from a
+# request; configure these deployment-environment variables in Netlify (including deploy previews)
+# with HTTPS operator endpoints: RPC_UPSTREAM_ETHEREUM, RPC_UPSTREAM_OP_MAINNET,
+# RPC_UPSTREAM_BASE, and RPC_UPSTREAM_SEPOLIA. Do not place their values in this repository.
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/rpc/:chain"
+  to = "/.netlify/functions/rpc?chain=:chain"
+  status = 200
+  force = true
+
 [[headers]]
   for = "/*"
 

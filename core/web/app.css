@@ -502,6 +502,30 @@ button:disabled {
     overflow-wrap: anywhere;
 }
 
+.verify-ceremony {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    background: #fafafa;
+    text-align: left;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.verify-ceremony h3 {
+    margin-top: 0;
+}
+
+.verify-ceremony ol {
+    margin: 0;
+    padding-left: 22px;
+}
+
+.verify-ceremony li + li {
+    margin-top: 8px;
+}
+
 @media (max-width: 600px) {
     .verify-lookup-fields {
         grid-template-columns: minmax(0, 1fr);
