@@ -256,6 +256,13 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse transaction data: %w", err)
 	}
+	if strings.TrimPrefix(tx.Data, "0x") == "" {
+		if tx.Value.Sign() > 0 {
+			call.FunctionName = "Send native ETH"
+		} else {
+			call.FunctionName = "No calldata"
+		}
+	}
 	tx.Call = *call
 
 	// Calculate the domain and message hashes
@@ -299,6 +306,9 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 // odd-length calldata to something shorter, either of which hashes as a transaction other
 // than the one we display.
 func (tx SafeTransaction) validate() error {
+	if tx.Value == nil {
+		return fmt.Errorf("value is required")
+	}
 	addresses := []struct {
 		field, value string
 		optional     bool

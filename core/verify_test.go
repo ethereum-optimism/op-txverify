@@ -112,6 +112,94 @@ func TestParseTransactionDataRejectsInvalidMultiSendOperation(t *testing.T) {
 	}
 }
 
+func TestParseTransactionData_EmptyCalldataRemainsValueAgnostic(t *testing.T) {
+	call, err := ParseTransactionData(testTransaction().To, "0x", MainnetChainID, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("ParseTransactionData: %v", err)
+	}
+	if call.FunctionName != "unknown" {
+		t.Fatalf("FunctionName = %q, want value-agnostic unknown", call.FunctionName)
+	}
+}
+
+func TestVerifyTransaction_NormalizesEmptyCalldataWithTransactionValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		value    *big.Int
+		function string
+	}{
+		{"native transfer", "", big.NewInt(1), "Send native ETH"},
+		{"zero-value call", "0x", big.NewInt(0), "No calldata"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := testTransaction()
+			tx.Data = tc.data
+			tx.Value = tc.value
+			wantHash, err := CalculateApproveHash(tx)
+			if err != nil {
+				t.Fatalf("CalculateApproveHash: %v", err)
+			}
+
+			result, err := VerifyTransaction(tx, VerifyOptions{})
+			if err != nil {
+				t.Fatalf("VerifyTransaction: %v", err)
+			}
+			if result.Call.FunctionName != tc.function {
+				t.Fatalf("FunctionName = %q, want %q", result.Call.FunctionName, tc.function)
+			}
+			if result.Call.Target != tx.To || result.Call.RawData != "0x" {
+				t.Fatalf("call = %+v, want target %s and raw calldata 0x", result.Call, tx.To)
+			}
+			if result.ApproveHash != wantHash {
+				t.Fatalf("ApproveHash = %s, want unchanged hash %s", result.ApproveHash, wantHash)
+			}
+		})
+	}
+}
+
+func TestVerifyTransaction_NormalizesEmptyCalldataForNestedChild(t *testing.T) {
+	child := testTransaction()
+	child.Data = "0x"
+	child.Value = big.NewInt(1)
+	childHash, err := CalculateApproveHash(child)
+	if err != nil {
+		t.Fatalf("CalculateApproveHash: %v", err)
+	}
+
+	tx := child
+	tx.Nested = &Nested{
+		Safe:        ProxyAdminOwner,
+		SafeVersion: "1.3.0",
+		Nonce:       7,
+		To:          child.Safe,
+		Data:        "0x" + hex.EncodeToString(approveHashData(childHash)),
+	}
+	result, err := VerifyTransaction(tx, VerifyOptions{})
+	if err != nil {
+		t.Fatalf("VerifyTransaction: %v", err)
+	}
+	childCall := result.NestedResult.Call
+	if childCall.FunctionName != "Send native ETH" {
+		t.Fatalf("child FunctionName = %q, want Send native ETH", childCall.FunctionName)
+	}
+	if childCall.Target != child.To || childCall.RawData != "0x" {
+		t.Fatalf("child call = %+v, want target %s and raw calldata 0x", childCall, child.To)
+	}
+}
+
+func TestVerifyTransaction_RejectsNilValue(t *testing.T) {
+	tx := testTransaction()
+	tx.Value = nil
+
+	_, err := VerifyTransaction(tx, VerifyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "value is required") {
+		t.Fatalf("VerifyTransaction error = %v, want missing value rejection", err)
+	}
+}
+
 func TestVerifyTransaction_RejectsSilentlyCoercedFields(t *testing.T) {
 	tests := []struct {
 		name   string
