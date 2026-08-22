@@ -22,6 +22,7 @@ const CHAIN_ID_TO_PUBLIC_RPC = {
 
 const RPC_ENDPOINT_CHAIN_CACHE = new Map();
 const RPC_TIMEOUT_MS = 5_000;
+const TRANSIENT_RPC_ERROR_CODES = new Set([-32002, -32005, -32603]);
 
 class RPCAvailabilityError extends Error {}
 
@@ -51,7 +52,8 @@ async function rpcRequest(endpoint, request) {
     }
     try {
         if (!response.ok) {
-            if ((endpoint.sameOrigin && response.status === 404) || response.status === 429 || response.status >= 500) {
+            if ((endpoint.sameOrigin && response.status === 404) || response.status === 408 ||
+                response.status === 429 || response.status >= 500) {
                 throw new RPCAvailabilityError(`${endpoint.name} is unavailable`);
             }
             throw new Error(`${endpoint.name} rejected the request (${response.status})`);
@@ -63,12 +65,16 @@ async function rpcRequest(endpoint, request) {
         } catch {
             throw new RPCAvailabilityError(`${endpoint.name} returned invalid JSON`);
         }
+        if (endpoint.sameOrigin) {
+            if (json && Object.prototype.hasOwnProperty.call(json, 'result')) return json.result;
+            throw new RPCAvailabilityError(`${endpoint.name} returned an invalid RPC response`);
+        }
         if (!json || json.jsonrpc !== '2.0' || json.id !== request.id ||
             (!Object.prototype.hasOwnProperty.call(json, 'result') && !json.error)) {
             throw new RPCAvailabilityError(`${endpoint.name} returned an invalid RPC response`);
         }
         if (json.error) {
-            if (request.method === 'eth_chainId') {
+            if (request.method === 'eth_chainId' || TRANSIENT_RPC_ERROR_CODES.has(json.error.code)) {
                 throw new RPCAvailabilityError(`${endpoint.name} cannot verify its chain`);
             }
             throw new Error(`${endpoint.name} RPC error: ${json.error.message || 'unknown error'}`);

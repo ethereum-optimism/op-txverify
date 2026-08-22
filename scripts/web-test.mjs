@@ -35,6 +35,7 @@ const respond = async (url, options) => {
   const registered = api[url];
   const entry = typeof registered === 'function' ? await registered(options) : registered;
   if (entry === undefined) return { ok: false, status: 404, statusText: 'Not Found' };
+  if (entry.response) return entry.response;
   if (entry.status) return { ok: false, status: entry.status, statusText: 'Service Unavailable' };
   return { ok: true, json: async () => entry, arrayBuffer: async () => new ArrayBuffer(0) };
 };
@@ -543,6 +544,10 @@ const rpcReply = (chainHex, preimage, calls, failure = null) => async (options) 
     ? { jsonrpc: '2.0', id: request.id, result: chainHex }
     : { jsonrpc: '2.0', id: request.id, result: preimage };
 };
+const relayReply = (chainHex, preimage, calls) => async (options) => {
+  calls.push(JSON.parse(options.body));
+  return { result: calls.at(-1).method === 'eth_chainId' ? chainHex : preimage };
+};
 const clearRpcCache = () => fns.RPC_ENDPOINT_CHAIN_CACHE?.clear();
 const verifyRpc = async (name, primary, fallback, expected) => {
   clearRpcCache();
@@ -557,7 +562,7 @@ const rpcPreimage = agreeingPreimage(LOCAL_DOMAIN_HASH, LOCAL_MESSAGE_HASH);
 const primarySuccessCalls = [];
 const fallbackUnusedCalls = [];
 await verifyRpc('same-origin operator RPC is tried and chain-checked before PublicNode',
-  rpcReply('0xa', rpcPreimage, primarySuccessCalls), rpcReply('0xa', rpcPreimage, fallbackUnusedCalls),
+  relayReply('0xa', rpcPreimage, primarySuccessCalls), rpcReply('0xa', rpcPreimage, fallbackUnusedCalls),
   (got) => got?.domainHash === LOCAL_DOMAIN_HASH &&
     primarySuccessCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call' &&
     fallbackUnusedCalls.length === 0);
@@ -591,21 +596,32 @@ await verifyRpc('a missing same-origin RPC route is availability and falls back 
 
 const stalledBodyCalls = [];
 const stalledBodyFallbackCalls = [];
+let stalledBodyAborted = false;
+let fallbackStartedAfterAbort = false;
 await verifyRpc('the RPC timeout remains active while parsing a stalled response body',
   async (options) => {
     const request = JSON.parse(options.body);
     stalledBodyCalls.push(request);
-    if (request.method === 'eth_chainId') return { jsonrpc: '2.0', id: request.id, result: '0xa' };
+    if (request.method === 'eth_chainId') return { result: '0xa' };
     return {
-      ok: true,
-      json: () => new Promise((_resolve, reject) =>
-        options.signal.addEventListener('abort', () => reject(new DOMException('timed out', 'AbortError')))),
+      response: {
+        ok: true,
+        json: () => new Promise((_resolve, reject) =>
+          options.signal.addEventListener('abort', () => {
+            stalledBodyAborted = true;
+            reject(new DOMException('timed out', 'AbortError'));
+          })),
+      },
     };
   },
-  rpcReply('0xa', rpcPreimage, stalledBodyFallbackCalls),
+  async (options) => {
+    fallbackStartedAfterAbort = stalledBodyAborted;
+    return rpcReply('0xa', rpcPreimage, stalledBodyFallbackCalls)(options);
+  },
   (got) => got?.domainHash === LOCAL_DOMAIN_HASH &&
     stalledBodyCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call' &&
-    stalledBodyFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+    stalledBodyFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call' &&
+    stalledBodyAborted && fallbackStartedAfterAbort);
 
 const wrongChainCalls = [];
 const wrongChainFallbackCalls = [];
@@ -631,17 +647,20 @@ await verifyRpc('an eth_chainId RPC error is an availability failure and uses th
 const ethCallErrorPrimaryCalls = [];
 const ethCallErrorFallbackCalls = [];
 await verifyRpc('an eth_call JSON-RPC error is terminal and does not fall back',
+  async () => {
+    ethCallErrorPrimaryCalls.push('unavailable');
+    return { status: 503 };
+  },
   async (options) => {
     const request = JSON.parse(options.body);
-    ethCallErrorPrimaryCalls.push(request);
+    ethCallErrorFallbackCalls.push(request);
     return request.method === 'eth_chainId'
       ? { jsonrpc: '2.0', id: request.id, result: '0xa' }
-      : { jsonrpc: '2.0', id: request.id, error: { message: 'execution reverted' } };
+      : { jsonrpc: '2.0', id: request.id, error: { code: 3, message: 'execution reverted' } };
   },
-  rpcReply('0xa', rpcPreimage, ethCallErrorFallbackCalls),
   (_got, error) => error?.includes('execution reverted') &&
-    ethCallErrorPrimaryCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call' &&
-    ethCallErrorFallbackCalls.length === 0);
+    ethCallErrorPrimaryCalls.length === 1 &&
+    ethCallErrorFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
 
 const unavailablePrimaryCalls = [];
 const unavailableFallbackCalls = [];
@@ -650,7 +669,7 @@ await verifyRpc('reports unavailable when both configured RPC endpoints cannot a
   rpcReply('0xa', rpcPreimage, unavailableFallbackCalls, new TypeError('offline')),
   (_got, error) => error?.includes('unavailable') && unavailablePrimaryCalls.length === 1 && unavailableFallbackCalls.length === 1);
 
-for (const status of [429, 503]) {
+for (const status of [408, 429, 503]) {
   const primaryCalls = [];
   const fallbackCalls = [];
   await verifyRpc(`HTTP ${status} from the operator RPC falls back to PublicNode`,
@@ -661,6 +680,25 @@ for (const status of [429, 503]) {
     rpcReply('0xa', rpcPreimage, fallbackCalls),
     (got) => got?.domainHash === LOCAL_DOMAIN_HASH && primaryCalls.length === 1 &&
       fallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+}
+
+for (const code of [-32002, -32005, -32603]) {
+  const transientPrimaryCalls = [];
+  const transientFallbackCalls = [];
+  await verifyRpc(`transient JSON-RPC error ${code} falls back to PublicNode`,
+    async () => {
+      transientPrimaryCalls.push('unavailable');
+      return { status: 503 };
+    },
+    async (options) => {
+      const request = JSON.parse(options.body);
+      transientFallbackCalls.push(request);
+      return request.method === 'eth_chainId'
+        ? { jsonrpc: '2.0', id: request.id, result: '0xa' }
+        : { jsonrpc: '2.0', id: request.id, error: { code, message: 'temporary RPC problem' } };
+    },
+    (_got, error) => error?.includes('unavailable') && transientPrimaryCalls.length === 1 &&
+      transientFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
 }
 
 const public404PrimaryCalls = [];
@@ -676,6 +714,17 @@ await verifyRpc('a PublicNode 404 is terminal and does not get reclassified as a
   },
   (_got, error) => error?.includes('PublicNode RPC rejected the request (404)') &&
     public404PrimaryCalls.length === 1 && public404FallbackCalls.length === 1);
+
+const rejectedRelayCalls = [];
+const rejectedRelayFallbackCalls = [];
+await verifyRpc('a sanitized same-origin execution rejection is terminal and never falls back',
+  async (options) => {
+    rejectedRelayCalls.push(JSON.parse(options.body));
+    return { status: 422 };
+  },
+  rpcReply('0xa', rpcPreimage, rejectedRelayFallbackCalls),
+  (_got, error) => error?.includes('same-origin operator RPC rejected the request (422)') &&
+    rejectedRelayCalls.length === 1 && rejectedRelayFallbackCalls.length === 0);
 
 checkContains('the result flow gives signers the four mandatory ceremony steps', render(), [
   '<section class="verify-ceremony"><h3>Before you sign</h3><ol>',

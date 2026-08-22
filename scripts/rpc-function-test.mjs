@@ -1,12 +1,8 @@
 #!/usr/bin/env node
-// Dependency-free regression tests for the Netlify RPC allowlist function.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-
-const require = createRequire(import.meta.url);
-const { handler, __test } = require('../netlify/functions/rpc.js');
+import relay, { config, createRelay, __test } from '../netlify/functions/rpc.mjs';
 
 const upstreams = {
   RPC_UPSTREAM_ETHEREUM: 'https://ethereum.example/rpc',
@@ -14,29 +10,24 @@ const upstreams = {
   RPC_UPSTREAM_BASE: 'https://base.example/rpc',
   RPC_UPSTREAM_SEPOLIA: 'https://sepolia.example/rpc',
 };
+const SELECTOR = '0xe86637db';
 
-function event(chain, body, extra = {}) {
-  return {
-    httpMethod: 'POST',
-    queryStringParameters: { chain: String(chain) },
-    body: JSON.stringify(body),
-    ...extra,
-  };
+function rpcRequest(chain, body, options = {}) {
+  const method = options.method || 'POST';
+  const init = { method, headers: { 'content-type': 'application/json' }, ...options };
+  if (method !== 'GET' && method !== 'HEAD') init.body = JSON.stringify(body);
+  return [new Request(`https://op-txverify.example/rpc/${chain}`, init), { params: { chain: String(chain) } }];
 }
 
-async function withEnvironment(overrides, run) {
+async function withEnv(overrides, run) {
   const previous = new Map();
   for (const [key, value] of Object.entries({ ...upstreams, ...overrides })) {
     previous.set(key, process.env[key]);
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
-  try {
-    return await run();
-  } finally {
+  try { return await run(); } finally {
     for (const [key, value] of previous) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }
 }
@@ -44,14 +35,18 @@ async function withEnvironment(overrides, run) {
 async function withFetch(fake, run) {
   const previous = globalThis.fetch;
   globalThis.fetch = fake;
-  try {
-    return await run();
-  } finally {
-    globalThis.fetch = previous;
-  }
+  try { return await run(); } finally { globalThis.fetch = previous; }
 }
 
-test('only exposes configured upstreams for supported chains', () => {
+test('uses the custom POST-only, rate-limited path with no legacy redirect', () => {
+  assert.equal(config.path, '/rpc/:chain');
+  assert.equal(config.method, 'POST');
+  assert.deepEqual(config.rateLimit, { windowLimit: 60, windowSize: 60, aggregateBy: ['ip', 'domain'] });
+  assert.equal(readFileSync(new URL('../netlify.toml', import.meta.url), 'utf8').includes('[[redirects]]'), false);
+  assert.equal(readFileSync(new URL('../netlify/functions/rpc.mjs', import.meta.url), 'utf8').includes('console.'), false);
+});
+
+test('uses only configured HTTPS upstreams for supported chains', () => {
   assert.equal(__test.configuredUpstream(1, upstreams), upstreams.RPC_UPSTREAM_ETHEREUM);
   assert.equal(__test.configuredUpstream(10, upstreams), upstreams.RPC_UPSTREAM_OP_MAINNET);
   assert.equal(__test.configuredUpstream(8453, upstreams), upstreams.RPC_UPSTREAM_BASE);
@@ -59,88 +54,121 @@ test('only exposes configured upstreams for supported chains', () => {
   assert.equal(__test.configuredUpstream(999, upstreams), null);
 });
 
-test('Netlify routes the fixed same-origin path and documents every deployment environment variable', () => {
-  const config = readFileSync(new URL('../netlify.toml', import.meta.url), 'utf8');
-  assert.match(config, /from = "\/rpc\/:chain"/);
-  assert.match(config, /to = "\/\.netlify\/functions\/rpc\?chain=:chain"/);
-  for (const name of Object.keys(upstreams)) assert.match(config, new RegExp(name));
+test('reports missing configuration as availability and rejects unsupported chains', async () => {
+  await withEnv({ RPC_UPSTREAM_OP_MAINNET: undefined }, async () => {
+    assert.equal((await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }))).status, 503);
+  });
+  await withEnv({}, async () => {
+    assert.equal((await relay(...rpcRequest(999, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }))).status, 404);
+  });
 });
 
-test('forwards a valid eth_chainId request to the configured chain upstream', async () => {
-  await withEnvironment({}, async () => {
-    let request;
-    await withFetch(async (url, options) => {
-      request = { url, options };
-      return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0xa' }), { status: 200 });
-    }, async () => {
-      const response = await handler(event(10, {
-        jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [],
-      }));
-      assert.equal(response.statusCode, 200);
-      assert.equal(request.url, upstreams.RPC_UPSTREAM_OP_MAINNET);
-      assert.equal(JSON.parse(request.options.body).method, 'eth_chainId');
-      assert.equal(JSON.parse(response.body).result, '0xa');
+test('returns only the upstream result and sends no redirects', async () => {
+  await withEnv({}, async () => withFetch(async (url, options) => {
+    assert.equal(url, upstreams.RPC_UPSTREAM_OP_MAINNET);
+    assert.equal(options.redirect, 'error');
+    return Response.json({ jsonrpc: '2.0', id: 1, result: '0xa' });
+  }, async () => {
+    const response = await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { result: '0xa' });
+  }));
+});
+
+test('allows only encodeTransactionData eth_call', async () => {
+  await withEnv({}, async () => {
+    const invalid = await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: `0x${'a'.repeat(40)}`, data: '0x12345678' }, 'latest'] }));
+    assert.equal(invalid.status, 400);
+    await withFetch(async () => Response.json({ jsonrpc: '2.0', id: 1, result: '0x' }), async () => {
+      const valid = await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: `0x${'a'.repeat(40)}`, data: `${SELECTOR}00` }, 'latest'] }));
+      assert.equal(valid.status, 200);
     });
   });
 });
 
-test('treats a missing deployment upstream as availability so the browser may use its fallback', async () => {
-  await withEnvironment({ RPC_UPSTREAM_OP_MAINNET: undefined }, async () => {
-    const response = await handler(event(10, {
-      jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [],
+test('sanitizes valid-sized error envelopes containing an exact environment secret', async () => {
+  const secret = 'https://user:exact-env-secret@example.invalid/rpc';
+  await withEnv({ RPC_UPSTREAM_OP_MAINNET: secret }, async () => withFetch(async () => Response.json({
+    jsonrpc: '2.0', id: 1, error: { code: 3, message: `execution reverted ${secret}`, data: secret },
+  }), async () => {
+    const response = await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: `0x${'a'.repeat(40)}`, data: `${SELECTOR}00` }, 'latest'] }));
+    assert.equal(response.status, 422);
+    const text = await response.text();
+    assert.equal(text.includes(secret), false);
+    assert.equal(text.includes('execution reverted'), false);
+  }));
+});
+
+test('maps only documented transient JSON-RPC errors to availability', async () => {
+  await withEnv({}, async () => {
+    for (const code of [-32002, -32005, -32603]) {
+      await withFetch(async () => Response.json({ jsonrpc: '2.0', id: 1, error: { code, message: 'retry' } }), async () => {
+        const response = await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }));
+        assert.equal(response.status, 503);
+      });
+    }
+  });
+});
+
+test('treats all chainId errors and HTTP 408, 429, and 5xx as availability', async () => {
+  await withEnv({}, async () => withFetch(async () => Response.json({
+    jsonrpc: '2.0', id: 1, error: { code: 3, message: 'chain unavailable' },
+  }), async () => {
+    assert.equal((await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }))).status, 503);
+  }));
+  for (const status of [408, 429, 503]) {
+    await withEnv({}, async () => withFetch(async () => new Response('', { status }), async () => {
+      assert.equal((await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }))).status, status);
     }));
-    assert.equal(response.statusCode, 503);
-  });
+  }
 });
 
-test('rejects methods and eth_call shapes outside the small read-only allowlist', async () => {
-  await withEnvironment({}, async () => {
-    const forbidden = await handler(event(10, {
-      jsonrpc: '2.0', id: 1, method: 'eth_sendRawTransaction', params: ['0xdead'],
+test('rejects malformed and non-POST requests before reaching an upstream', async () => {
+  await withEnv({}, async () => withFetch(async () => { throw new Error('must not fetch'); }, async () => {
+    const [get, context] = rpcRequest(10, {}, { method: 'GET' });
+    assert.equal((await relay(get, context)).status, 405);
+    const invalid = await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_sendRawTransaction', params: [] }));
+    assert.equal(invalid.status, 400);
+  }));
+});
+
+test('enforces request and response size caps without exposing a configured secret', async () => {
+  await withEnv({}, async () => withFetch(async () => { throw new Error('must not fetch'); }, async () => {
+    const large = new Request('https://op-txverify.example/rpc/10', { method: 'POST', body: 'x'.repeat(__test.MAX_BODY_BYTES + 1) });
+    assert.equal((await relay(large, { params: { chain: '10' } })).status, 413);
+  }));
+
+  const secret = 'https://user:response-secret@example.invalid/rpc';
+  await withEnv({ RPC_UPSTREAM_OP_MAINNET: secret }, async () => withFetch(async () =>
+    new Response('x'.repeat(__test.MAX_RESPONSE_BYTES + 1)), async () => {
+      const response = await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }));
+      assert.equal(response.status, 502);
+      assert.equal((await response.text()).includes(secret), false);
     }));
-    assert.equal(forbidden.statusCode, 400);
-
-    const malformedCall = await handler(event(10, {
-      jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: 'not-an-address', data: '0x' }, 'latest'],
-    }));
-    assert.equal(malformedCall.statusCode, 400);
-  });
 });
 
-test('rejects non-POST, oversized, and non-JSON requests before contacting an upstream', async () => {
-  await withEnvironment({}, async () => {
-    let called = false;
-    await withFetch(async () => { called = true; throw new Error('must not fetch'); }, async () => {
-      assert.equal((await handler(event(10, {}, { httpMethod: 'GET' }))).statusCode, 405);
-      assert.equal((await handler(event(10, {}, { body: '{' }))).statusCode, 400);
-      assert.equal((await handler(event(10, {}, { body: 'x'.repeat(__test.MAX_BODY_BYTES + 1) }))).statusCode, 413);
-      assert.equal(called, false);
-    });
-  });
+test('maps transport failures to generic availability without exposing upstream details', async () => {
+  const secret = 'https://user:transport-secret@example.invalid/rpc';
+  await withEnv({ RPC_UPSTREAM_OP_MAINNET: secret }, async () => withFetch(async () => {
+    throw new Error(`cannot reach ${secret}`);
+  }, async () => {
+    const response = await relay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }));
+    assert.equal(response.status, 502);
+    assert.equal((await response.text()).includes(secret), false);
+  }));
 });
 
-test('caps oversized upstream responses and never returns a configured credential or error detail', async () => {
-  const secret = 'https://user:secret@example.invalid/rpc';
-  await withEnvironment({ RPC_UPSTREAM_OP_MAINNET: secret }, async () => {
-    await withFetch(async () => new Response('x'.repeat(__test.MAX_RESPONSE_BYTES + 1), { status: 200 }), async () => {
-      const response = await handler(event(10, {
-        jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [],
-      }));
-      assert.equal(response.statusCode, 502);
-      assert.equal(response.body.includes(secret), false);
-      assert.equal(response.body.includes('secret'), false);
+test('uses an injected short timeout and waits for its AbortSignal', async () => {
+  let aborted = false;
+  const fastRelay = createRelay({ timeoutMs: 1 });
+  await withEnv({}, async () => withFetch(async (_url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener('abort', () => {
+      aborted = true;
+      reject(new DOMException('timed out', 'AbortError'));
     });
-  });
-});
-
-test('maps a timed-out upstream to a generic availability response', async () => {
-  await withEnvironment({}, async () => {
-    await withFetch(async () => { throw new DOMException('timed out', 'AbortError'); }, async () => {
-      const response = await handler(event(10, {
-        jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [],
-      }));
-      assert.equal(response.statusCode, 504);
-      assert.equal(response.body.includes('timed out'), false);
-    });
-  });
+  }), async () => {
+    const response = await fastRelay(...rpcRequest(10, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }));
+    assert.equal(response.status, 504);
+    assert.equal(aborted, true);
+  }));
 });

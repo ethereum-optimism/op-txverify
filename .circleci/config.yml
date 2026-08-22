@@ -103,6 +103,9 @@ jobs:
           name: Test the page's pure functions
           command: node scripts/web-test.mjs
       - run:
+          name: Test the Netlify RPC relay
+          command: node scripts/rpc-function-test.mjs
+      - run:
           name: Assert published allowlist
           command: |
             for f in site/index.html site/app.css site/app.js site/verify.js \
