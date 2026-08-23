@@ -31,19 +31,25 @@ const stubEl = () => ({
   click() { return this.dispatchEvent({ type: 'click' }); }
 });
 // A registered response is a body, or { status } for a service that answered with a failure.
-const respond = (url) => {
-  const entry = api[url];
+const respond = async (url, options) => {
+  const registered = api[url];
+  const entry = typeof registered === 'function' ? await registered(options) : registered;
   if (entry === undefined) return { ok: false, status: 404, statusText: 'Not Found' };
+  if (entry.response) return entry.response;
   if (entry.status) return { ok: false, status: entry.status, statusText: 'Service Unavailable' };
-  return { ok: true, json: async () => entry };
+  return { ok: true, json: async () => entry, arrayBuffer: async () => new ArrayBuffer(0) };
 };
 const globals = {
   document: { getElementById: stubEl },
-  window: { addEventListener() {}, location: { search: '' } },
+  window: {
+    addEventListener() {}, location: { search: '' },
+    Go: class { constructor() { this.importObject = {}; } run() {} },
+  },
+  WebAssembly: { instantiate: async () => ({ instance: {} }) },
   URLSearchParams,
   Event,
   console: { log() {}, warn() {}, error() {} },
-  fetch: async (url) => respond(url),
+  fetch: async (url, options) => respond(url, options),
   // Retry backoff without the wait: five attempts of real exponential backoff is 15 seconds.
   setTimeout: (fn) => setTimeout(fn, 0),
   navigator: { clipboard: { readText: async () => clipboard } },
@@ -56,10 +62,14 @@ const exported = [
   'extractTransactionHash', 'checkUrlForTransactionData', 'assertExactInteger', 'assertOperation',
   'state', 'DOM', 'extractSafeChainId', 'parsePreimage', 'esc', 'assertVersionSupported',
   'assertTxHash', 'VERIFY_DOM', 'setInputsDisabled',
+  'ethCall', 'RPC_ENDPOINT_CHAIN_CACHE',
 ];
 // verify.js is a second classic script that reads app.js's globals, so both are evaluated together.
 const source = readFileSync(join(web, 'app.js'), 'utf8') + '\n' + readFileSync(join(web, 'verify.js'), 'utf8');
-const fns = new Function(...Object.keys(globals), `${source}\nreturn { ${exported.join(', ')} };`)(
+const fns = new Function(...Object.keys(globals), `${source}\nreturn { ${exported.join(', ')}, ` +
+  'renderCheck: typeof renderCheck === \'function\' ? renderCheck : undefined, ' +
+  'renderAction: typeof renderCall === \'function\' ? renderCall : undefined, ' +
+  'renderRawDetails: typeof renderRawDetails === \'function\' ? renderRawDetails : undefined };')(
   ...Object.values(globals)
 );
 
@@ -74,7 +84,24 @@ const check = (name, got, want) =>
 // Matching the message keeps a rejection for the wrong reason from reading as a pass.
 const checkMessage = (name, got, want) =>
   report(name, String(got).includes(want), got, `a message containing: ${want}`);
+const checkContains = (name, got, parts) =>
+  report(name, parts.every(part => String(got).includes(part)), got, `HTML containing: ${parts.join(', ')}`);
 const rejection = (fn) => { try { fn(); return 'no error thrown'; } catch (error) { return error.message; } };
+const checkOrder = (name, html, parts) => {
+  const positions = parts.map(part => String(html).indexOf(part));
+  report(name, positions.every((position, index) =>
+    position >= 0 && (index === 0 || position > positions[index - 1])),
+  positions.join(', '), `increasing positions for: ${parts.join(', ')}`);
+};
+const contrastRatio = (foreground, background) => {
+  const luminance = (hex) => {
+    const channels = hex.match(/[0-9a-f]{2}/gi).map(channel => parseInt(channel, 16) / 255)
+      .map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+};
 
 // The page auto-starts without awaiting, so give that work a turn before asserting on it.
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -86,6 +113,21 @@ const page = readFileSync(join(web, 'index.html'), 'utf8');
 const txPlaceholder = page.match(/id="txInput"[^>]*placeholder="([^"]*)"/)[1];
 report('the transaction placeholder fits on a phone', txPlaceholder.length <= 19,
   `${txPlaceholder.length} characters`, 'at most 19 characters');
+
+// The verifier lookup is a distinct form: sharing the landing page's flex row made its second and
+// third controls disappear off a phone-sized viewport. Keep its visible labels and responsive
+// layout as an inexpensive guard alongside the browser containment check.
+const lookupMarkup = page.match(/<div class="verify-lookup-fields">([\s\S]*?)<\/div>/)?.[1] || '';
+report('verifier lookup controls have dedicated visible field labels',
+  ['Network', 'Safe address', 'Nonce'].every(label =>
+    lookupMarkup.includes(`<span class="verify-lookup-label">${label}</span>`)) &&
+  ['verifyNetwork', 'verifySafe', 'verifyNonce'].every(id => lookupMarkup.includes(`id="${id}"`)),
+  lookupMarkup, 'Network, Safe address, and Nonce labels with the existing control ids');
+
+report('a long Safe input has a readable full-address companion',
+  lookupMarkup.includes('id="verifySafePreview"') &&
+  readFileSync(join(web, 'verify.js'), 'utf8').includes('updateSafePreview'),
+  lookupMarkup, 'a verifier Safe preview updated from the input value');
 
 // A FastLZ control byte below 32 is a literal run of control+1 bytes, so runs of at most 32 bytes
 // encode any text as itself. Enough to exercise the ?txz= path without a compressor.
@@ -346,6 +388,433 @@ for (const ok of ['1.4.1', '1.3.0', '1.1.1']) {
 check('escapes tags', fns.esc('</pre><script>x</script>'), '&lt;/pre&gt;&lt;script&gt;x&lt;/script&gt;');
 check('escapes attribute-breaking quotes', fns.esc('" autofocus onfocus=alert(1) x="'),
   '&quot; autofocus onfocus=alert(1) x=&quot;');
+
+// These fixtures call the production renderer used by runVerify. A string inspection here checks
+// the signer-visible HTML without duplicating the renderer in a test-only DOM implementation.
+const ETHERFI_SPOKE = '0xdffcC3536D932eb51Df51a7F5FA407c4270d5308';
+const LOCAL_DOMAIN_HASH = `0x${'4'.repeat(64)}`;
+const LOCAL_MESSAGE_HASH = `0x${'5'.repeat(64)}`;
+const rendererCheck = (over = {}) => ({
+  label: 'ledger', target: INNER_SAFE, safeVersion: '1.4.1', approveHash: HASH,
+  domainHash: LOCAL_DOMAIN_HASH, messageHash: LOCAL_MESSAGE_HASH,
+  call: {
+    target: ETHERFI_SPOKE, targetLabel: 'ETHERFI SPOKE (PROXY)', functionName: 'withdraw',
+    signature: 'withdraw(uint256,uint256,address)', operation: 'CALL',
+    arguments: [
+      { name: 'reserveId', type: 'uint256', value: '0' },
+      { name: 'amount', type: 'uint256', value: '5000057' },
+      { name: 'onBehalfOf', type: 'address', value: INNER_SAFE },
+    ],
+  },
+  safeFields: {
+    to: ETHERFI_SPOKE, value: '0', data: '0x0ad58d2f00', operation: '0', safeTxGas: '0',
+    baseGas: '0', gasPrice: '0', gasToken: ZERO_ADDRESS, refundReceiver: ZERO_ADDRESS, nonce: '3',
+  },
+  ...over,
+});
+const render = (checkValue = rendererCheck(), onchain = {
+  domainHash: LOCAL_DOMAIN_HASH, messageHash: LOCAL_MESSAGE_HASH,
+}, agree = true) => fns.renderCheck?.(checkValue, onchain, 10, agree) || '';
+
+report('production check renderer is available', typeof fns.renderCheck === 'function',
+  typeof fns.renderCheck, 'function');
+report('production action component renderer is available', typeof fns.renderAction === 'function',
+  typeof fns.renderAction, 'function');
+report('production raw-details component renderer is available', typeof fns.renderRawDetails === 'function',
+  typeof fns.renderRawDetails, 'function');
+
+const friendlyHTML = render();
+const friendlyAction = fns.renderAction?.(rendererCheck().call) || '';
+checkContains('EtherFi labels and values come from the production action component', friendlyAction, [
+  '<article', '<dl', 'ETHERFI SPOKE (PROXY)', ETHERFI_SPOKE, 'withdraw',
+  'withdraw(uint256,uint256,address)', 'CALL', 'reserveId', '>0<', 'amount', '5000057',
+  'onBehalfOf', INNER_SAFE,
+]);
+report('known calls do not fall back to preformatted Go-map text', !friendlyHTML.includes('verify-decode') &&
+  !friendlyHTML.includes('<pre'), friendlyHTML, 'semantic HTML without verify-decode or pre');
+
+const recursiveHTML = render(rendererCheck({ call: {
+  target: `0x${'c'.repeat(40)}`, targetLabel: 'Batch caller', functionName: 'aggregate3',
+  signature: 'aggregate3((address,bool,bytes)[])', operation: 'DELEGATECALL', arguments: [], calls: [
+    rendererCheck().call,
+    {
+      target: `0x${'d'.repeat(40)}`, functionName: 'setConfig', signature: 'setConfig((uint256,bool)[])',
+      operation: 'CALL', arguments: [{ name: 'configs', type: '(uint256,bool)[]', value: [[
+        { name: 'limit', type: 'uint256', value: '9007199254740993' },
+        { name: 'enabled', type: 'bool', value: true },
+      ]] }], calls: [{
+        target: `0x${'e'.repeat(40)}`, functionName: 'pause', signature: 'pause()',
+        operation: 'DELEGATECALL', arguments: [],
+      }],
+    },
+  ],
+} }));
+checkContains('nested actions are recursive, numbered, precision-safe, and flag delegatecall', recursiveHTML, [
+  'Action 1', 'Action 2', 'Action 2.1', 'DELEGATECALL', 'limit', '9007199254740993',
+  'enabled', 'true', 'pause()',
+]);
+
+const malicious = '</dd><script>window.pwned=1</script><span title="';
+const maliciousHTML = render(rendererCheck({ call: {
+  target: ETHERFI_SPOKE, targetLabel: malicious, functionName: 'propose',
+  signature: 'propose(address[],uint256[],bytes[],string,uint8)', operation: 'CALL',
+  arguments: [{ name: 'description', type: 'string', value: malicious }],
+} }));
+report('every ABI and label string is escaped by the production renderer',
+  !maliciousHTML.includes('<script>') && !maliciousHTML.includes('<span title="') &&
+    maliciousHTML.includes('&lt;/dd&gt;&lt;script&gt;window.pwned=1&lt;/script&gt;'),
+  maliciousHTML, 'escaped text with no injected script or attribute');
+
+const unknownRaw = '0xdeadbeef00000001';
+const unknownHTML = render(rendererCheck({ call: {
+  target: ETHERFI_SPOKE, functionName: 'Unknown function', operation: 'CALL',
+  selector: '0xdeadbeef', rawCalldata: unknownRaw, arguments: [],
+} }));
+checkContains('unknown calldata stays visible and fails intent verification clearly', unknownHTML, [
+  'Unknown function', ETHERFI_SPOKE, '0xdeadbeef', unknownRaw,
+  'hashes may agree', 'not established', 'DO NOT SIGN', 'independently decoded',
+]);
+const friendlyRawDetails = fns.renderRawDetails?.(rendererCheck().safeFields) || '';
+report('unknown warning is not part of the production raw-details component',
+  !friendlyRawDetails.includes('verify-intent-warning'), friendlyRawDetails,
+  'Raw transaction fields without an intent warning');
+
+const malformedKnownRaw = '0x13af4035'; // setOwner(address), missing the address argument.
+const malformedKnownHTML = render(rendererCheck({ call: {
+  target: ETHERFI_SPOKE, functionName: 'Unknown function', operation: 'CALL',
+  selector: malformedKnownRaw, rawCalldata: malformedKnownRaw, arguments: [],
+} }));
+checkContains('known selector with truncated arguments uses the unknown warning renderer', malformedKnownHTML,
+  ['Unknown function', malformedKnownRaw, 'DO NOT SIGN', 'independently decoded']);
+
+for (const [name, call, visible] of [
+  ['native transfer', {
+    target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL', arguments: [
+      { name: 'recipient', type: 'address', value: INNER_SAFE },
+      { name: 'value', type: 'uint256', value: '9007199254740993' },
+    ],
+  }, ['Send native ETH', 'recipient', INNER_SAFE, 'value', '9007199254740993']],
+  ['no calldata', { target: INNER_SAFE, functionName: 'No calldata', operation: 'CALL', arguments: [] },
+    ['No calldata', INNER_SAFE, 'CALL']],
+  ['known payable call', {
+    ...rendererCheck().call, value: '9007199254740993',
+  }, ['withdraw', 'Native ETH value (wei)', '9007199254740993']],
+]) {
+  checkContains(`${name} has a clear signer-visible presentation`,
+    render(rendererCheck({ call })), visible);
+}
+
+checkContains('Safe fields and calldata come from the production raw-details component', friendlyRawDetails, [
+  '<details class="verify-raw" open>', '<summary>Raw transaction fields</summary>', '<code>to</code>', ETHERFI_SPOKE,
+  '<code>value</code>', '<code>data</code>', '0x0ad58d2f00', '<code>operation</code>',
+  '<code>safeTxGas</code>', '<code>baseGas</code>', '<code>gasPrice</code>', '<code>gasToken</code>',
+  '<code>refundReceiver</code>', '<code>nonce</code>',
+]);
+checkOrder('assembled check keeps hashes, action, then raw details in order', friendlyHTML, [
+  '<dt>Domain hash</dt>', '<dt>Message hash</dt>', '<dt>safeTxHash</dt>', friendlyAction,
+  friendlyRawDetails,
+]);
+
+const mismatchHTML = render(rendererCheck(), {
+  domainHash: `0x${'6'.repeat(64)}`, messageHash: `0x${'7'.repeat(64)}`,
+}, false);
+checkContains('hash mismatches remain DO NOT SIGN and show both sources', mismatchHTML, [
+  'DO NOT SIGN', 'Safe contract', 'Local recomputation', LOCAL_DOMAIN_HASH, LOCAL_MESSAGE_HASH,
+]);
+checkOrder('mismatching hashes keep warning, hash rows, action, and raw details in order', mismatchHTML, [
+  '<p class="verify-intent-warning">', '<dt>Domain hash</dt>', '<dt>Message hash</dt>',
+  '<dt>safeTxHash</dt>', friendlyAction, friendlyRawDetails,
+]);
+
+const css = readFileSync(join(web, 'app.css'), 'utf8');
+const dangerText = css.match(/--verify-danger-text:\s*(#[0-9a-f]{6})/i)?.[1] ?? '#ff0420';
+report('small danger text meets WCAG AA on the warning background',
+  contrastRatio(dangerText, '#fff4f5') >= 4.5,
+  contrastRatio(dangerText, '#fff4f5').toFixed(2), 'at least 4.50');
+
+const ETH_RPC = 'https://ethereum-rpc.publicnode.com';
+const OP_RPC = 'https://optimism-rpc.publicnode.com';
+const OP_RPC_PROXY = '/rpc/10';
+const agreeingPreimage = (domainHash, messageHash) =>
+  '0x' + '0'.repeat(62) + '20' + '0'.repeat(62) + '42' + '1901' +
+  domainHash.slice(2) + messageHash.slice(2) + '0'.repeat(60);
+
+const rpcReply = (chainHex, preimage, calls, failure = null) => async (options) => {
+  calls.push(JSON.parse(options.body));
+  if (failure) throw failure;
+  const request = calls.at(-1);
+  return request.method === 'eth_chainId'
+    ? { jsonrpc: '2.0', id: request.id, result: chainHex }
+    : { jsonrpc: '2.0', id: request.id, result: preimage };
+};
+const relayReply = (chainHex, preimage, calls) => async (options) => {
+  calls.push(JSON.parse(options.body));
+  return { result: calls.at(-1).method === 'eth_chainId' ? chainHex : preimage };
+};
+const clearRpcCache = () => fns.RPC_ENDPOINT_CHAIN_CACHE?.clear();
+const verifyRpc = async (name, primary, fallback, expected) => {
+  clearRpcCache();
+  api = { [OP_RPC_PROXY]: primary, [OP_RPC]: fallback };
+  let got = null;
+  let error = null;
+  try { got = await fns.ethCall(10, INNER_SAFE, '0x'); } catch (reason) { error = reason.message; }
+  report(name, expected(got, error), error || JSON.stringify(got), 'expected RPC endpoint behavior');
+};
+
+const rpcPreimage = agreeingPreimage(LOCAL_DOMAIN_HASH, LOCAL_MESSAGE_HASH);
+const primarySuccessCalls = [];
+const fallbackUnusedCalls = [];
+await verifyRpc('same-origin operator RPC is tried and chain-checked before PublicNode',
+  relayReply('0xa', rpcPreimage, primarySuccessCalls), rpcReply('0xa', rpcPreimage, fallbackUnusedCalls),
+  (got) => got?.domainHash === LOCAL_DOMAIN_HASH &&
+    primarySuccessCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call' &&
+    fallbackUnusedCalls.length === 0);
+
+const cachedChainCalls = [];
+clearRpcCache();
+api = { [OP_RPC_PROXY]: rpcReply('0xa', rpcPreimage, cachedChainCalls) };
+await fns.ethCall(10, INNER_SAFE, '0x');
+await fns.ethCall(10, INNER_SAFE, '0x');
+check('each endpoint has eth_chainId verified once before repeated eth_call requests',
+  cachedChainCalls.map(request => request.method).join(','), 'eth_chainId,eth_call,eth_call');
+
+const primaryUnavailableCalls = [];
+const fallbackSuccessCalls = [];
+await verifyRpc('availability failure fails over from same-origin RPC to PublicNode',
+  rpcReply('0xa', rpcPreimage, primaryUnavailableCalls, new TypeError('network unavailable')),
+  rpcReply('0xa', rpcPreimage, fallbackSuccessCalls),
+  (got) => got?.messageHash === LOCAL_MESSAGE_HASH && primaryUnavailableCalls.length === 1 &&
+    fallbackSuccessCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+
+const missingRouteCalls = [];
+const missingRouteFallbackCalls = [];
+await verifyRpc('a missing same-origin RPC route is availability and falls back to PublicNode',
+  async (options) => {
+    missingRouteCalls.push(JSON.parse(options.body));
+    return { status: 404 };
+  },
+  rpcReply('0xa', rpcPreimage, missingRouteFallbackCalls),
+  (got) => got?.messageHash === LOCAL_MESSAGE_HASH && missingRouteCalls.length === 1 &&
+    missingRouteFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+
+const stalledBodyCalls = [];
+const stalledBodyFallbackCalls = [];
+let stalledBodyAborted = false;
+let fallbackStartedAfterAbort = false;
+await verifyRpc('the RPC timeout remains active while parsing a stalled response body',
+  async (options) => {
+    const request = JSON.parse(options.body);
+    stalledBodyCalls.push(request);
+    if (request.method === 'eth_chainId') return { result: '0xa' };
+    return {
+      response: {
+        ok: true,
+        json: () => new Promise((_resolve, reject) =>
+          options.signal.addEventListener('abort', () => {
+            stalledBodyAborted = true;
+            reject(new DOMException('timed out', 'AbortError'));
+          })),
+      },
+    };
+  },
+  async (options) => {
+    fallbackStartedAfterAbort = stalledBodyAborted;
+    return rpcReply('0xa', rpcPreimage, stalledBodyFallbackCalls)(options);
+  },
+  (got) => got?.domainHash === LOCAL_DOMAIN_HASH &&
+    stalledBodyCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call' &&
+    stalledBodyFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call' &&
+    stalledBodyAborted && fallbackStartedAfterAbort);
+
+const wrongChainCalls = [];
+const wrongChainFallbackCalls = [];
+await verifyRpc('wrong-chain operator RPC is rejected before the fallback is used',
+  rpcReply('0x1', rpcPreimage, wrongChainCalls), rpcReply('0xa', rpcPreimage, wrongChainFallbackCalls),
+  (got) => got?.domainHash === LOCAL_DOMAIN_HASH && wrongChainCalls.length === 1 &&
+    wrongChainFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+
+const chainErrorCalls = [];
+const chainErrorFallbackCalls = [];
+await verifyRpc('an eth_chainId RPC error is an availability failure and uses the fallback',
+  async (options) => {
+    const request = JSON.parse(options.body);
+    chainErrorCalls.push(request);
+    return request.method === 'eth_chainId'
+      ? { jsonrpc: '2.0', id: request.id, error: { message: 'method unavailable' } }
+      : { jsonrpc: '2.0', id: request.id, result: rpcPreimage };
+  },
+  rpcReply('0xa', rpcPreimage, chainErrorFallbackCalls),
+  (got) => got?.domainHash === LOCAL_DOMAIN_HASH && chainErrorCalls.length === 1 &&
+    chainErrorFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+
+const ethCallErrorPrimaryCalls = [];
+const ethCallErrorFallbackCalls = [];
+await verifyRpc('an eth_call JSON-RPC error is terminal and does not fall back',
+  async () => {
+    ethCallErrorPrimaryCalls.push('unavailable');
+    return { status: 503 };
+  },
+  async (options) => {
+    const request = JSON.parse(options.body);
+    ethCallErrorFallbackCalls.push(request);
+    return request.method === 'eth_chainId'
+      ? { jsonrpc: '2.0', id: request.id, result: '0xa' }
+      : { jsonrpc: '2.0', id: request.id, error: { code: 3, message: 'execution reverted' } };
+  },
+  (_got, error) => error?.includes('execution reverted') &&
+    ethCallErrorPrimaryCalls.length === 1 &&
+    ethCallErrorFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+
+const unavailablePrimaryCalls = [];
+const unavailableFallbackCalls = [];
+await verifyRpc('reports unavailable when both configured RPC endpoints cannot answer',
+  rpcReply('0xa', rpcPreimage, unavailablePrimaryCalls, new TypeError('offline')),
+  rpcReply('0xa', rpcPreimage, unavailableFallbackCalls, new TypeError('offline')),
+  (_got, error) => error?.includes('unavailable') && unavailablePrimaryCalls.length === 1 && unavailableFallbackCalls.length === 1);
+
+for (const status of [408, 429, 503]) {
+  const primaryCalls = [];
+  const fallbackCalls = [];
+  await verifyRpc(`HTTP ${status} from the operator RPC falls back to PublicNode`,
+    async (options) => {
+      primaryCalls.push(JSON.parse(options.body));
+      return { status };
+    },
+    rpcReply('0xa', rpcPreimage, fallbackCalls),
+    (got) => got?.domainHash === LOCAL_DOMAIN_HASH && primaryCalls.length === 1 &&
+      fallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+}
+
+for (const code of [-32002, -32005, -32603]) {
+  const transientPrimaryCalls = [];
+  const transientFallbackCalls = [];
+  await verifyRpc(`transient JSON-RPC error ${code} falls back to PublicNode`,
+    async () => {
+      transientPrimaryCalls.push('unavailable');
+      return { status: 503 };
+    },
+    async (options) => {
+      const request = JSON.parse(options.body);
+      transientFallbackCalls.push(request);
+      return request.method === 'eth_chainId'
+        ? { jsonrpc: '2.0', id: request.id, result: '0xa' }
+        : { jsonrpc: '2.0', id: request.id, error: { code, message: 'temporary RPC problem' } };
+    },
+    (_got, error) => error?.includes('unavailable') && transientPrimaryCalls.length === 1 &&
+      transientFallbackCalls.map(request => request.method).join(',') === 'eth_chainId,eth_call');
+}
+
+const public404PrimaryCalls = [];
+const public404FallbackCalls = [];
+await verifyRpc('a PublicNode 404 is terminal and does not get reclassified as availability',
+  async (options) => {
+    public404PrimaryCalls.push(JSON.parse(options.body));
+    return { status: 503 };
+  },
+  async (options) => {
+    public404FallbackCalls.push(JSON.parse(options.body));
+    return { status: 404 };
+  },
+  (_got, error) => error?.includes('PublicNode RPC rejected the request (404)') &&
+    public404PrimaryCalls.length === 1 && public404FallbackCalls.length === 1);
+
+const rejectedRelayCalls = [];
+const rejectedRelayFallbackCalls = [];
+await verifyRpc('a sanitized same-origin execution rejection is terminal and never falls back',
+  async (options) => {
+    rejectedRelayCalls.push(JSON.parse(options.body));
+    return { status: 422 };
+  },
+  rpcReply('0xa', rpcPreimage, rejectedRelayFallbackCalls),
+  (_got, error) => error?.includes('same-origin operator RPC rejected the request (422)') &&
+    rejectedRelayCalls.length === 1 && rejectedRelayFallbackCalls.length === 0);
+
+checkContains('the result flow gives signers the four mandatory ceremony steps', render(), [
+  '<section class="verify-ceremony"><h3>Before you sign</h3><ol>',
+  '<li>Confirm network, Safe, and decoded action.</li>',
+  '<li>Compare domain and message hashes with the hardware wallet.</li>',
+  '<li>Under the compromised-computer threat model, independently run',
+  '<li><strong>DO NOT SIGN</strong> on any mismatch or when the action remains unknown.</li>',
+]);
+
+const mismatchPrimaryCalls = [];
+const mismatchFallbackCalls = [];
+clearRpcCache();
+api = {
+  ...plainApi({ value: '0', data: '0x' }),
+  '/wasm/main.wasm': {},
+  '/rpc/1': rpcReply('0x1', agreeingPreimage(`0x${'6'.repeat(64)}`, LOCAL_MESSAGE_HASH), mismatchPrimaryCalls),
+  [ETH_RPC]: rpcReply('0x1', rpcPreimage, mismatchFallbackCalls),
+};
+globals.window.txvVerify = () => ({ contractChecks: [{ ...rendererCheck(), calldata: '0x' }] });
+fns.state.directPayloadText = null;
+fns.DOM.txInput.value = HASH;
+fns.VERIFY_DOM.network.value = '1';
+fns.VERIFY_DOM.safe.value = '';
+fns.VERIFY_DOM.nonce.value = '';
+await fns.VERIFY_DOM.btn.click();
+checkMessage('a valid on-chain preimage mismatch is terminal and says DO NOT SIGN', fns.DOM.status.textContent,
+  'MISMATCH - DO NOT SIGN');
+check('a valid on-chain preimage mismatch never falls back to PublicNode', mismatchFallbackCalls.length, 0);
+
+const verifyMalformedCall = async (call) => {
+  api = {
+    ...plainApi({ value: '0', data: '0x' }),
+    '/wasm/main.wasm': {},
+    '/rpc/1': async (options) => {
+      const request = JSON.parse(options.body);
+      return request.method === 'eth_chainId'
+        ? { jsonrpc: '2.0', id: request.id, result: '0x1' }
+        : { jsonrpc: '2.0', id: request.id, result: agreeingPreimage(LOCAL_DOMAIN_HASH, LOCAL_MESSAGE_HASH) };
+    },
+  };
+  globals.window.txvVerify = () => ({
+    contractChecks: [{ ...rendererCheck({ call }), calldata: '0x' }],
+  });
+  fns.state.directPayloadText = null;
+  fns.DOM.txInput.value = HASH;
+  fns.VERIFY_DOM.network.value = '1';
+  fns.VERIFY_DOM.safe.value = '';
+  fns.VERIFY_DOM.nonce.value = '';
+  await fns.VERIFY_DOM.btn.click();
+  return { status: fns.DOM.status.textContent, html: fns.VERIFY_DOM.panel.innerHTML };
+};
+
+for (const [name, malformedCall] of [
+  ['null top-level call', null],
+  ['falsey top-level function name', { ...rendererCheck().call, functionName: '' }],
+  ['null nested call', { ...rendererCheck().call, calls: [null] }],
+  ['falsey nested function name', {
+    ...rendererCheck().call, calls: [{ ...rendererCheck().call, functionName: null }],
+  }],
+  ['non-array nested calls', { ...rendererCheck().call, calls: {} }],
+  ['malformed argument', {
+    ...rendererCheck().call, arguments: [{ name: null, type: 'uint256', value: '1' }],
+  }],
+  ['known call with missing arguments', (() => {
+    const call = { ...rendererCheck().call };
+    delete call.arguments;
+    return call;
+  })()],
+  ['known call with null arguments', { ...rendererCheck().call, arguments: null }],
+  ['known call with non-array arguments', { ...rendererCheck().call, arguments: {} }],
+  ['known call with an exponent value', { ...rendererCheck().call, value: '1e18' }],
+  ['known call with a numeric value', { ...rendererCheck().call, value: 1 }],
+  ['native transfer with missing arguments', {
+    target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL',
+  }],
+  ['native transfer with null arguments', {
+    target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL', arguments: null,
+  }],
+  ['native transfer with non-array arguments', {
+    target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL', arguments: {},
+  }],
+]) {
+  const result = await verifyMalformedCall(malformedCall);
+  checkMessage(`${name} leaves final runVerify status at DO NOT SIGN`, result.status, 'DO NOT SIGN');
+  report(`${name} never reports a successful hash comparison`,
+    !result.status.includes('Compare the hashes'), result.status, 'status without Compare the hashes');
+}
 
 // A result describes the inputs it came from. Leaving it on screen after one of them changes shows
 // a signer a green result for a transaction that is no longer the one in the box.

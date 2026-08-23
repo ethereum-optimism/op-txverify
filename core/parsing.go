@@ -16,6 +16,7 @@ import (
 func ParseTransactionData(to string, data string, chainID uint64, options VerifyOptions) (*CallData, error) {
 	// Remove 0x prefix if present
 	cleanData := strings.TrimPrefix(data, "0x")
+	rawData := "0x" + cleanData
 
 	// Normalize the target address
 	normalizedTo := strings.ToLower(to)
@@ -33,7 +34,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: "unknown",
-			RawData:      "0x" + data,
+			RawData:      rawData,
 		}, nil
 	}
 
@@ -43,7 +44,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: "unknown",
-			RawData:      data,
+			RawData:      rawData,
 		}, nil
 	}
 
@@ -58,7 +59,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: "unknown",
-			RawData:      data,
+			RawData:      rawData,
 		}, nil
 	}
 
@@ -70,7 +71,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: functionInfo.Name,
-			RawData:      data,
+			RawData:      rawData,
 		}, nil
 	}
 
@@ -109,6 +110,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 			Target:       to,
 			TargetName:   targetName,
 			FunctionName: functionInfo.Name,
+			Calldata:     rawData,
 			SubCalls:     subcalls,
 		}, nil
 	}
@@ -118,6 +120,7 @@ func ParseTransactionData(to string, data string, chainID uint64, options Verify
 		Target:       to,
 		TargetName:   targetName,
 		FunctionName: functionInfo.Name,
+		Calldata:     rawData,
 		ParsedData:   parsedArgs,
 	}, nil
 }
@@ -317,35 +320,40 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 			for pos < len(data) {
 				// Ensure we have enough data for the fixed-size fields
 				if pos+85 > len(data) {
-					break
+					return nil, fmt.Errorf("truncated multiSend header at byte %d", pos)
 				}
 
-				// Extract operation
-				// Can skip extracting the operation as it's always 0
+				// Extract operation.
+				operation := data[pos]
 				pos++
+				if operation != 0 && operation != 1 {
+					return nil, fmt.Errorf("invalid multiSend operation %d: Safe allows only 0 (CALL) or 1 (DELEGATECALL)", operation)
+				}
 
 				// Extract to address
 				to := common.BytesToAddress(data[pos : pos+20])
 				pos += 20
 
-				// Skip extracting value for now, can implement later if needed
+				value := new(big.Int).SetBytes(data[pos : pos+32])
 				pos += 32
 
 				// Extract data length
 				dataLength := common.BytesToHash(data[pos : pos+32])
 				pos += 32
 
-				// Convert data length to int
-				length := new(big.Int).SetBytes(dataLength[:]).Uint64()
-
-				// Ensure we have enough data for the variable-size field
-				if pos+int(length) > len(data) {
-					break
+				length := new(big.Int).SetBytes(dataLength[:])
+				remaining := len(data) - pos
+				if length.Cmp(big.NewInt(int64(remaining))) > 0 {
+					return nil, fmt.Errorf(
+						"truncated multiSend body at byte %d: declares %s bytes, only %d remain",
+						pos, length, remaining,
+					)
 				}
 
 				// Extract call data
-				callData := data[pos : pos+int(length)]
-				pos += int(length)
+				callLength := int(length.Int64())
+				callData := data[pos : pos+callLength]
+				pos += callLength
 
 				// Parse the subcall
 				subcall, err := ParseTransactionData(to.Hex(), "0x"+hex.EncodeToString(callData), chainID, options)
@@ -353,6 +361,8 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 					return nil, err
 				}
 
+				subcall.Value = value
+				subcall.IsDelegateCall = operation == 1
 				subcalls = append(subcalls, *subcall)
 			}
 		} else {
@@ -421,7 +431,7 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 			for _, call := range calls {
 				subcall, err := ParseTransactionData(call.Target.Hex(), "0x"+hex.EncodeToString(call.CallData), chainID, options)
 				if err != nil {
-					continue
+					return nil, fmt.Errorf("invalid aggregate3 subcall to %s: %w", call.Target.Hex(), err)
 				}
 
 				// If the multicall is via the delegatecall helper, mark subcalls as delegate
@@ -503,8 +513,10 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 			for _, call := range calls {
 				subcall, err := ParseTransactionData(call.Target.Hex(), "0x"+hex.EncodeToString(call.CallData), chainID, options)
 				if err != nil {
-					continue
+					return nil, fmt.Errorf("invalid aggregate3Value subcall to %s: %w", call.Target.Hex(), err)
 				}
+
+				subcall.Value = call.Value
 
 				// If the multicall is via the delegatecall helper, mark subcalls as delegate
 				if normalizedAddress == strings.ToLower(Multicall3Delegatecall) {

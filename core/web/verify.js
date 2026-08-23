@@ -10,14 +10,94 @@
  * CHAIN_ID_TO_BASE_URL, DOM and state from app.js.
  */
 
-// One endpoint per chain is enough: the wasm recomputes the same hashes from the fetched
-// parameters, so a wrong preimage from an RPC shows up as a mismatch rather than a wrong hash.
-const CHAIN_ID_TO_RPC = {
+// PublicNode remains an availability fallback. The first candidate is a same-origin Netlify
+// function, which chooses an operator-configured upstream without exposing its URL or widening
+// CSP beyond `connect-src 'self'`.
+const CHAIN_ID_TO_PUBLIC_RPC = {
     1: 'https://ethereum-rpc.publicnode.com',
     10: 'https://optimism-rpc.publicnode.com',
     8453: 'https://base-rpc.publicnode.com',
     11155111: 'https://ethereum-sepolia-rpc.publicnode.com'
 };
+
+const RPC_ENDPOINT_CHAIN_CACHE = new Map();
+const RPC_TIMEOUT_MS = 5_000;
+const TRANSIENT_RPC_ERROR_CODES = new Set([-32002, -32005, -32603]);
+
+class RPCAvailabilityError extends Error {}
+
+function rpcCandidates(chainId) {
+    const fallback = CHAIN_ID_TO_PUBLIC_RPC[chainId];
+    if (!fallback) throw new Error(`No RPC configured for chain ${chainId}`);
+    return [
+        { url: `/rpc/${chainId}`, name: 'same-origin operator RPC', sameOrigin: true },
+        { url: fallback, name: 'PublicNode RPC' },
+    ];
+}
+
+async function rpcRequest(endpoint, request) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+    let response;
+    try {
+        response = await fetch(endpoint.url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(request),
+            signal: controller.signal,
+        });
+    } catch {
+        clearTimeout(timer);
+        throw new RPCAvailabilityError(`${endpoint.name} is unavailable`);
+    }
+    try {
+        if (!response.ok) {
+            if ((endpoint.sameOrigin && response.status === 404) || response.status === 408 ||
+                response.status === 429 || response.status >= 500) {
+                throw new RPCAvailabilityError(`${endpoint.name} is unavailable`);
+            }
+            throw new Error(`${endpoint.name} rejected the request (${response.status})`);
+        }
+
+        let json;
+        try {
+            json = await response.json();
+        } catch {
+            throw new RPCAvailabilityError(`${endpoint.name} returned invalid JSON`);
+        }
+        if (endpoint.sameOrigin) {
+            if (json && Object.prototype.hasOwnProperty.call(json, 'result')) return json.result;
+            throw new RPCAvailabilityError(`${endpoint.name} returned an invalid RPC response`);
+        }
+        if (!json || json.jsonrpc !== '2.0' || json.id !== request.id ||
+            (!Object.prototype.hasOwnProperty.call(json, 'result') && !json.error)) {
+            throw new RPCAvailabilityError(`${endpoint.name} returned an invalid RPC response`);
+        }
+        if (json.error) {
+            if (request.method === 'eth_chainId' || TRANSIENT_RPC_ERROR_CODES.has(json.error.code)) {
+                throw new RPCAvailabilityError(`${endpoint.name} cannot verify its chain`);
+            }
+            throw new Error(`${endpoint.name} RPC error: ${json.error.message || 'unknown error'}`);
+        }
+        return json.result;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function verifyRPCChain(endpoint, chainId) {
+    if (RPC_ENDPOINT_CHAIN_CACHE.has(endpoint.url)) return;
+    const result = await rpcRequest(endpoint, {
+        jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [],
+    });
+    const returnedChainId = typeof result === 'string' && /^0x[0-9a-f]+$/i.test(result)
+        ? parseInt(result, 16)
+        : NaN;
+    if (returnedChainId !== chainId) {
+        throw new RPCAvailabilityError(`${endpoint.name} is configured for the wrong chain`);
+    }
+    RPC_ENDPOINT_CHAIN_CACHE.set(endpoint.url, true);
+}
 
 // Shown beside the hashes: a signer must be able to see which chain was verified, since the hash
 // comparison alone cannot reveal a wrong-chain lookup on Safe <= 1.2.0.
@@ -43,6 +123,7 @@ const LOOKUP_KEY = 'op-txverify:lookup';
 const VERIFY_DOM = {
     network: document.getElementById('verifyNetwork'),
     safe: document.getElementById('verifySafe'),
+    safePreview: document.getElementById('verifySafePreview'),
     nonce: document.getElementById('verifyNonce'),
     btn: document.getElementById('verifyBtn'),
     panel: document.getElementById('verifyPanel'),
@@ -58,6 +139,10 @@ const IDLE_STATUS = DOM.status.textContent;
 let generation = 0;
 
 const VERIFY_INPUTS = [DOM.txInput, VERIFY_DOM.network, VERIFY_DOM.safe, VERIFY_DOM.nonce];
+
+function updateSafePreview() {
+    VERIFY_DOM.safePreview.textContent = (VERIFY_DOM.safe.value || '').trim();
+}
 
 function invalidateResults() {
     generation++;
@@ -169,34 +254,258 @@ function parsePreimage(raw) {
 }
 
 async function ethCall(chainId, target, calldata) {
-    const rpc = CHAIN_ID_TO_RPC[chainId];
-    if (!rpc) throw new Error(`No RPC configured for chain ${chainId}`);
-
-    const response = await fetch(rpc, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'eth_call',
-            params: [{ to: target, data: calldata }, 'latest']
-        })
-    });
-    if (!response.ok) throw new Error(`RPC ${response.status} ${response.statusText}`);
-
-    const json = await response.json();
-    if (json.error) throw new Error(`RPC error: ${json.error.message}`);
-    return parsePreimage(json.result);
+    const unavailable = [];
+    for (const endpoint of rpcCandidates(chainId)) {
+        try {
+            await verifyRPCChain(endpoint, chainId);
+            // parsePreimage is deliberately inside the non-availability path: a successful
+            // eth_call is a signer-relevant on-chain result, never a reason to try another RPC.
+            return parsePreimage(await rpcRequest(endpoint, {
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'eth_call',
+                params: [{ to: target, data: calldata }, 'latest'],
+            }));
+        } catch (error) {
+            if (!(error instanceof RPCAvailabilityError)) throw error;
+            unavailable.push(error.message);
+        }
+    }
+    throw new Error(`RPC unavailable: ${unavailable.join('; ')}`);
 }
 
-function row(label, value, warn) {
-    return `<div class="verify-row${warn ? ' verify-warn' : ''}">` +
-        `<span class="verify-label">${esc(label)}</span>` +
-        `<span class="verify-value">${esc(value)}</span></div>`;
+function definitionRow(label, valueHTML, warn = false, labelIsHTML = false) {
+    return `<div class="verify-field${warn ? ' verify-warn' : ''}">` +
+        `<dt>${labelIsHTML ? label : esc(label)}</dt><dd>${valueHTML}</dd></div>`;
 }
 
-function block(title, text) {
-    return `<h3>${esc(title)}</h3><pre class="verify-decode">${esc(text)}</pre>`;
+function isArgument(value) {
+    return value !== null && typeof value === 'object' &&
+        Object.prototype.hasOwnProperty.call(value, 'name') &&
+        Object.prototype.hasOwnProperty.call(value, 'type') &&
+        Object.prototype.hasOwnProperty.call(value, 'value') &&
+        nonemptyString(value.name) && nonemptyString(value.type);
+}
+
+function nonemptyString(value) {
+    return typeof value === 'string' && value.trim() !== '';
+}
+
+// The WASM boundary is local, but rendering a malformed object as a known action would still turn
+// missing presentation data into a false statement. Normalize every call once and fail closed to an
+// explicit unknown action before either the renderer or final status inspects it.
+function normalizeCall(call) {
+    const validObject = call !== null && typeof call === 'object' && !Array.isArray(call);
+    const source = validObject ? call : {};
+    const functionName = nonemptyString(source.functionName)
+        ? source.functionName
+        : 'Unknown function';
+    const operationValid = source.operation === 'CALL' || source.operation === 'DELEGATECALL';
+    const targetValid = nonemptyString(source.target);
+    const valueValid = source.value === undefined ||
+        (typeof source.value === 'string' && /^(0|[1-9][0-9]*)$/.test(source.value));
+    const argumentsValid = Array.isArray(source.arguments) && source.arguments.every(isArgument);
+    const callsValid = source.calls === undefined || Array.isArray(source.calls);
+    const signatureRequired = !['Unknown function', 'Send native ETH', 'No calldata']
+        .includes(functionName);
+    const signatureValid = !signatureRequired || nonemptyString(source.signature);
+    const malformed = !validObject || functionName === 'Unknown function' || !operationValid ||
+        !targetValid || !valueValid || !argumentsValid || !callsValid || !signatureValid;
+    const rawCalldata = nonemptyString(source.rawCalldata)
+        ? source.rawCalldata
+        : '(missing calldata)';
+    const selector = nonemptyString(source.selector)
+        ? source.selector
+        : (rawCalldata.startsWith('0x') ? rawCalldata.slice(0, 10) : '(missing selector)');
+
+    const normalized = {
+        target: targetValid ? source.target : '(missing target)',
+        operation: operationValid ? source.operation : '(unknown)',
+        functionName: malformed ? 'Unknown function' : functionName,
+        arguments: argumentsValid ? source.arguments : [],
+        calls: callsValid && Array.isArray(source.calls) ? source.calls.map(normalizeCall) : [],
+    };
+    if (nonemptyString(source.targetLabel)) normalized.targetLabel = source.targetLabel;
+    if (!malformed && source.value !== undefined) normalized.value = source.value;
+    if (!malformed && nonemptyString(source.signature)) normalized.signature = source.signature;
+    if (normalized.functionName === 'Unknown function') {
+        normalized.selector = selector;
+        normalized.rawCalldata = rawCalldata;
+    }
+    return normalized;
+}
+
+function renderArgument(argument) {
+    return definitionRow(
+        argument.name,
+        `<span class="verify-type">${esc(argument.type)}</span>${renderValue(argument.value)}`
+    );
+}
+
+function renderValue(value) {
+    if (Array.isArray(value)) {
+        return `<ol class="verify-values">${value.map(item =>
+            `<li>${isArgument(item)
+                ? `<dl class="verify-fields verify-fields-nested">${renderArgument(item)}</dl>`
+                : renderValue(item)}</li>`).join('')}</ol>`;
+    }
+    if (value !== null && typeof value === 'object') {
+        return `<dl class="verify-fields verify-fields-nested">${Object.entries(value)
+            .map(([name, item]) => definitionRow(name, renderValue(item))).join('')}</dl>`;
+    }
+    return `<code>${esc(value === null ? 'null' : value)}</code>`;
+}
+
+function renderArguments(args) {
+    if (!Array.isArray(args) || args.length === 0) return '';
+    return `<section class="verify-arguments"><h5>Arguments</h5><dl class="verify-fields">` +
+        args.map(argument => isArgument(argument)
+            ? renderArgument(argument)
+            : definitionRow('(unnamed)', renderValue(argument))).join('') + '</dl></section>';
+}
+
+function renderTarget(call) {
+    const label = call.targetLabel
+        ? `<strong class="verify-target-label">${esc(call.targetLabel)}</strong>`
+        : '';
+    return `${label}<code>${esc(call.target)}</code>`;
+}
+
+function renderCall(call, path = [], normalized = false) {
+    if (!normalized) call = normalizeCall(call);
+    const functionName = call.functionName || 'Unknown function';
+    const operation = call.operation || '(unknown)';
+    const delegatecall = operation === 'DELEGATECALL';
+    const subject = call.targetLabel || call.target;
+    let summary;
+    if (functionName === 'Unknown function') {
+        summary = 'Unknown function';
+    } else if (functionName === 'Send native ETH') {
+        summary = `Send native ETH to ${subject}`;
+    } else if (functionName === 'No calldata') {
+        summary = `No calldata for ${subject}`;
+    } else {
+        summary = `${delegatecall ? 'DELEGATECALL' : 'Call'} ${subject}: ${functionName}`;
+    }
+
+    let html = `<article class="verify-action${delegatecall ? ' verify-action-delegate' : ''}">`;
+    if (path.length > 0) {
+        html += `<p class="verify-action-number">${esc(`Action ${path.join('.')}`)}</p>`;
+    }
+    html += `<h4>${esc(summary)}</h4><dl class="verify-fields">`;
+    html += definitionRow('Target', renderTarget(call));
+    if (call.signature) {
+        html += definitionRow('Signature', `<code>${esc(call.signature)}</code>`);
+    }
+    html += definitionRow(
+        'Operation',
+        delegatecall
+            ? `<strong class="verify-operation-warn">${esc(operation)}</strong>`
+            : `<code>${esc(operation)}</code>`
+    );
+    if (call.value !== undefined && functionName !== 'Send native ETH') {
+        html += definitionRow('Native ETH value (wei)', `<code>${esc(call.value)}</code>`);
+    }
+    if (functionName === 'Unknown function') {
+        html += definitionRow('Selector', `<code>${esc(call.selector)}</code>`);
+        html += definitionRow('Raw calldata', `<code>${esc(call.rawCalldata)}</code>`);
+    }
+    html += '</dl>';
+    html += renderArguments(call.arguments);
+
+    if (functionName === 'Unknown function') {
+        html += '<p class="verify-intent-warning"><strong>DO NOT SIGN.</strong> The hashes may ' +
+            'agree, but this page has not established this transaction\'s intent. Do not sign until ' +
+            'the action is independently decoded and confirmed.</p>';
+    }
+
+    if (Array.isArray(call.calls) && call.calls.length > 0) {
+        html += '<section class="verify-subactions"><h5>Nested actions</h5>';
+        html += call.calls.map((subcall, index) =>
+            renderCall(subcall, [...path, index + 1], true)).join('');
+        html += '</section>';
+    }
+    return html + '</article>';
+}
+
+const SAFE_FIELD_ORDER = [
+    'to', 'value', 'data', 'operation', 'safeTxGas', 'baseGas', 'gasPrice', 'gasToken',
+    'refundReceiver', 'nonce'
+];
+
+function renderSafeFields(fields) {
+    const present = new Set(SAFE_FIELD_ORDER.filter(name =>
+        Object.prototype.hasOwnProperty.call(fields, name)));
+    const names = [...present, ...Object.keys(fields).filter(name => !present.has(name))];
+    return `<dl class="verify-fields verify-raw-fields">${names.map(name =>
+        definitionRow(`<code>${esc(name)}</code>`, renderValue(fields[name]), false, true)).join('')}</dl>`;
+}
+
+function renderRawDetails(fields) {
+    return '<details class="verify-raw" open><summary>Raw transaction fields</summary>' +
+        renderSafeFields(fields) + '</details>';
+}
+
+function hashRow(label, contractValue, localValue) {
+    if (localValue === undefined) {
+        return definitionRow(label, `<code>${esc(contractValue)}</code>`);
+    }
+    return definitionRow(label,
+        `<span class="verify-hash-source">Safe contract: <code>${esc(contractValue)}</code></span>` +
+        `<span class="verify-hash-source">Local recomputation: <code>${esc(localValue)}</code></span>`,
+        true
+    );
+}
+
+function renderCheck(check, onchain, chainId, agree, normalized = false) {
+    const call = normalized ? check.call : normalizeCall(check.call);
+    let html = `<section class="verify-check"><h3>${check.label === 'ledger'
+        ? 'Compare these to your device'
+        : 'The nested transaction being approved'}</h3>`;
+    html += '<dl class="verify-fields verify-context">';
+    html += definitionRow('Network', `<span>${esc(`${NETWORK_NAMES[chainId]} (chain ${chainId})`)}</span>`);
+    html += definitionRow('Safe', `<code>${esc(check.target)}</code>`);
+    html += '</dl>';
+
+    if (!agree) {
+        html += '<p class="verify-intent-warning"><strong>DO NOT SIGN.</strong> The Safe contract ' +
+            'and the local recomputation disagree.</p>';
+    }
+    html += '<dl class="verify-fields verify-hashes">';
+    html += hashRow('Domain hash', onchain.domainHash, agree ? undefined : check.domainHash);
+    html += hashRow('Message hash', onchain.messageHash, agree ? undefined : check.messageHash);
+    html += hashRow('safeTxHash', check.approveHash);
+    html += definitionRow(
+        'Source',
+        `<span>${agree
+            ? 'Safe contract and local recomputation agree'
+            : 'Safe contract and local recomputation disagree'}</span>`,
+        !agree
+    );
+    html += '</dl>';
+
+    html += `<h3>${check.label === 'ledger' ? 'What you are signing' : 'What is being approved'}</h3>`;
+    html += renderCall(call, [], true);
+    html += renderRawDetails(check.safeFields);
+
+    const explorer = EXPLORERS[chainId];
+    if (check.label === 'ledger' && explorer) {
+        html += '<section class="verify-ceremony"><h3>Before you sign</h3><ol>' +
+            '<li>Confirm network, Safe, and decoded action.</li>' +
+            '<li>Compare domain and message hashes with the hardware wallet.</li>' +
+            '<li>Under the compromised-computer threat model, independently run ' +
+            `<code>encodeTransactionData</code> on <a href="${esc(explorer + check.target)}` +
+            `#readProxyContract">this Safe's contract explorer</a> with the exact raw transaction fields shown.</li>` +
+            '<li><strong>DO NOT SIGN</strong> on any mismatch or when the action remains unknown.</li>' +
+            '</ol></section>';
+    }
+    return html + '</section>';
+}
+
+function hasUnknownCall(call, normalized = false) {
+    if (!normalized) call = normalizeCall(call);
+    return call.functionName === 'Unknown function' ||
+        call.calls.some(subcall => hasUnknownCall(subcall, true));
 }
 
 // Safe 1.5.0 removed encodeTransactionData; getTransactionHash returns only the final hash, which the
@@ -237,7 +546,7 @@ async function runVerify(run) {
     // fields on 2 chains give the same Ledger hashes and a wrong-chain lookup would pass the hash
     // comparison while the addresses mean something else entirely.
     const chainId = parseInt(VERIFY_DOM.network.value, 10);
-    if (!CHAIN_ID_TO_RPC[chainId]) throw new Error('Select a supported network');
+    if (!CHAIN_ID_TO_PUBLIC_RPC[chainId]) throw new Error('Select a supported network');
 
     let txHash;
     if (typed) {
@@ -282,6 +591,7 @@ async function runVerify(run) {
     status('Reading hashes from the Safe contract...');
     let html = '';
     let mismatch = false;
+    let unknownIntent = false;
 
     for (const check of out.contractChecks) {
         // Requiring the recomputation to equal the hash the fields were fetched under is what
@@ -298,39 +608,10 @@ async function runVerify(run) {
         const agree = onchain.domainHash.toLowerCase() === check.domainHash.toLowerCase()
             && onchain.messageHash.toLowerCase() === check.messageHash.toLowerCase();
 
-        html += check.label === 'ledger'
-            ? '<h3>Compare these to your device</h3>'
-            : '<h3>The nested transaction being approved</h3>';
-        html += row('Network', `${NETWORK_NAMES[tx.chain]} (chain ${tx.chain})`);
-        html += row('Safe', check.target);
-        html += row('safeTxHash', check.approveHash);
-
-        if (agree) {
-            html += row('Domain hash', onchain.domainHash);
-            html += row('Message hash', onchain.messageHash);
-            html += row('Source', 'Safe contract and local recomputation agree');
-        } else {
-            mismatch = true;
-            html += row('DO NOT SIGN', 'The Safe contract and the local recomputation disagree.', true);
-            html += row('Domain (contract)', onchain.domainHash, true);
-            html += row('Domain (local)', check.domainHash, true);
-            html += row('Message (contract)', onchain.messageHash, true);
-            html += row('Message (local)', check.messageHash, true);
-        }
-
-        html += block(
-            check.label === 'ledger' ? 'What you are signing' : 'What is being approved',
-            check.decode
-        );
-        html += block('Parameters for this Safe', check.params);
-
-        const explorer = EXPLORERS[tx.chain];
-        if (explorer) {
-            html += `<p class="verify-note">To confirm without trusting this page, read ` +
-                `<code>encodeTransactionData</code> on <a href="${esc(explorer + check.target)}` +
-                `#readProxyContract">this Safe's contract page</a> (Read as Proxy) with the ` +
-                `parameters directly above.</p>`;
-        }
+        const call = normalizeCall(check.call);
+        mismatch ||= !agree;
+        unknownIntent ||= hasUnknownCall(call, true);
+        html += renderCheck({ ...check, call }, onchain, tx.chain, agree, true);
     }
 
     if (!current()) return;
@@ -339,7 +620,9 @@ async function runVerify(run) {
     if (mismatch) {
         throw new Error('MISMATCH - DO NOT SIGN. The contract and the local recomputation disagree.');
     }
-    status('Compare the hashes above to your device before signing.');
+    status(unknownIntent
+        ? 'DO NOT SIGN until every unknown function is independently decoded and confirmed.'
+        : 'Compare the hashes above to your device before signing.');
 }
 
 async function showBuildInfo() {
@@ -356,6 +639,8 @@ for (const element of VERIFY_INPUTS) {
     element.addEventListener('input', invalidateResults);
     element.addEventListener('change', invalidateResults);
 }
+VERIFY_DOM.safe.addEventListener('input', updateSafePreview);
+VERIFY_DOM.safe.addEventListener('change', updateSafePreview);
 
 VERIFY_DOM.btn.addEventListener('click', async () => {
     invalidateResults();
@@ -376,5 +661,6 @@ window.addEventListener('DOMContentLoaded', () => {
     if (saved.network) VERIFY_DOM.network.value = saved.network;
     if (saved.safe) VERIFY_DOM.safe.value = saved.safe;
     if (saved.nonce) VERIFY_DOM.nonce.value = saved.nonce;
+    updateSafePreview();
     showBuildInfo();
 });

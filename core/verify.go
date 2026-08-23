@@ -135,10 +135,12 @@ type CallData struct {
 	TargetName     string      `json:"targetName,omitempty"`
 	FunctionName   string      `json:"functionName"`
 	FunctionData   string      `json:"functionData,omitempty"`
+	Calldata       string      `json:"-"`
 	RawData        string      `json:"rawData,omitempty"`
 	ParsedData     interface{} `json:"parsedData,omitempty"`
 	SubCalls       []CallData  `json:"subCalls,omitempty"`
 	IsDelegateCall bool        `json:"isDelegateCall,omitempty"`
+	Value          *big.Int    `json:"-"`
 }
 
 // VerifyOptions contains configuration options for verification
@@ -254,6 +256,7 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse transaction data: %w", err)
 	}
+	normalizeCallValues(call, tx.Value)
 	tx.Call = *call
 
 	// Calculate the domain and message hashes
@@ -292,11 +295,35 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 	return result, nil
 }
 
+// normalizeCallValues attaches the value that travels with each call and gives empty calldata a
+// value-aware name. ParseTransactionData intentionally stays value-agnostic because its public API
+// receives only target and calldata.
+func normalizeCallValues(call *CallData, value *big.Int) {
+	call.Value = value
+	calldata := call.Calldata
+	if calldata == "" {
+		calldata = call.RawData
+	}
+	if strings.TrimPrefix(calldata, "0x") == "" {
+		if value != nil && value.Sign() > 0 {
+			call.FunctionName = "Send native ETH"
+		} else {
+			call.FunctionName = "No calldata"
+		}
+	}
+	for i := range call.SubCalls {
+		normalizeCallValues(&call.SubCalls[i], call.SubCalls[i].Value)
+	}
+}
+
 // validate rejects values the EIP-712 hash would otherwise silently coerce: HexToAddress
 // keeps only the last 20 bytes of an over-long address and FromHex decodes invalid or
 // odd-length calldata to something shorter, either of which hashes as a transaction other
 // than the one we display.
 func (tx SafeTransaction) validate() error {
+	if tx.Value == nil {
+		return fmt.Errorf("value is required")
+	}
 	addresses := []struct {
 		field, value string
 		optional     bool

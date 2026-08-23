@@ -202,6 +202,9 @@ func printCallDetails(w io.Writer, call core.CallData, depth int, heading, divid
 	}
 	fmt.Fprintf(w, "%s: %s\n", label("Target"), targetDisplay)
 	fmt.Fprintf(w, "%s: %s\n", label("Function"), call.FunctionName)
+	if depth > 0 && call.Value != nil && call.Value.Sign() > 0 {
+		fmt.Fprintf(w, "%s: %s\n", label("ETH Value (wei)"), call.Value.String())
+	}
 
 	// If there's raw data, print it
 	if call.RawData != "" {

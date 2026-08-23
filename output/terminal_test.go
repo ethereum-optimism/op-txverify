@@ -121,3 +121,64 @@ func TestFormatTerminal_ShowsChildValueOperationAndRefund(t *testing.T) {
 		t.Error("parent summary warns about the child's gas refund")
 	}
 }
+
+func TestFormatOutputs_ShowNativeTransferForEmptyCalldata(t *testing.T) {
+	color.NoColor = true
+	tx := core.SafeTransaction{
+		Safe:           "0x847B5c174615B1B7fDF770882256e2D3E95b9D92",
+		SafeVersion:    "1.3.0",
+		Chain:          1,
+		To:             "0x4200000000000000000000000000000000000016",
+		Value:          big.NewInt(1),
+		Data:           "0x",
+		GasToken:       "0x0000000000000000000000000000000000000000",
+		RefundReceiver: "0x0000000000000000000000000000000000000000",
+		Nonce:          1,
+	}
+	result, err := core.VerifyTransaction(tx, core.VerifyOptions{})
+	if err != nil {
+		t.Fatalf("VerifyTransaction: %v", err)
+	}
+
+	var terminal bytes.Buffer
+	if err := FormatTerminal(result, &terminal); err != nil {
+		t.Fatalf("FormatTerminal: %v", err)
+	}
+	var json bytes.Buffer
+	if err := FormatJSON(result, &json); err != nil {
+		t.Fatalf("FormatJSON: %v", err)
+	}
+
+	for name, out := range map[string]string{"terminal": terminal.String(), "json": json.String()} {
+		if !strings.Contains(out, "Send native ETH") {
+			t.Errorf("%s output does not label the transfer: %s", name, out)
+		}
+		if strings.Contains(out, "0x0x") {
+			t.Errorf("%s output duplicates the calldata prefix: %s", name, out)
+		}
+	}
+}
+
+func TestFormatTerminal_ShowsExactValueForKnownSubcall(t *testing.T) {
+	color.NoColor = true
+	result := &core.VerificationResult{
+		Transaction: core.SafeTransaction{
+			Safe: "0x847B5c174615B1B7fDF770882256e2D3E95b9D92", Chain: 1,
+			To: "0x4200000000000000000000000000000000000016", Value: big.NewInt(0), Data: "0x",
+		},
+		Call: core.CallData{
+			Target: "0x4200000000000000000000000000000000000016", FunctionName: "multiSend",
+			SubCalls: []core.CallData{{
+				Target: "0x1111111111111111111111111111111111111111", FunctionName: "approveHash", Value: big.NewInt(7),
+			}},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := FormatTerminal(result, &buf); err != nil {
+		t.Fatalf("FormatTerminal: %v", err)
+	}
+	if !strings.Contains(buf.String(), "ETH Value (wei): 7") {
+		t.Fatalf("terminal output omits the exact nonzero subcall value: %s", buf.String())
+	}
+}

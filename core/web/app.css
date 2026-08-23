@@ -81,6 +81,7 @@ select {
 
 .input-group input[type="text"] {
     flex-grow: 1;
+    min-width: 0;
     margin-right: 10px;
 }
 
@@ -126,6 +127,7 @@ button {
     border-radius: 50px;
     width: 100%;
     max-width: 250px;
+    min-height: 44px;
     transition: all 0.2s ease;
 }
 
@@ -298,8 +300,50 @@ button:disabled {
     text-align: left;
 }
 
+.verify-lookup-fields {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.verify-lookup-field {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    color: #666;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.verify-lookup-field select,
+.verify-lookup-field input[type="text"] {
+    min-width: 0;
+    min-height: 44px;
+    margin: 0;
+}
+
+.verify-safe-preview {
+    min-width: 0;
+    color: #333;
+    font-family: monospace;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.verify-safe-preview:empty {
+    display: none;
+}
+
 .verify-panel:empty {
     display: none;
+}
+
+.verify-panel {
+    --verify-danger-text: #B00020;
+    --verify-danger-accent: #FF0420;
+    min-width: 0;
 }
 
 .verify-panel h3 {
@@ -307,51 +351,185 @@ button:disabled {
     margin: 20px 0 8px;
 }
 
-.verify-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 6px 0;
-    border-bottom: 1px solid #eee;
-}
-
-.verify-label {
-    flex: 0 0 110px;
-    color: #666;
-    font-size: 13px;
-}
-
-.verify-value {
-    flex: 1 1 200px;
-    font-family: monospace;
-    font-size: 13px;
-    /* See .status: break-all wraps the line but leaves the intrinsic minimum width unchanged. */
-    word-break: break-all;
-    overflow-wrap: anywhere;
+.verify-fields {
+    margin: 0;
     min-width: 0;
 }
 
-/* A hash the contract and the local recomputation disagree on must not read as ordinary output. */
-.verify-warn .verify-value,
-.verify-warn .verify-label {
-    color: #FF0420;
+.verify-field {
+    display: grid;
+    grid-template-columns: minmax(90px, 120px) minmax(0, 1fr);
+    gap: 8px;
+    padding: 7px 0;
+    border-bottom: 1px solid #eee;
+    min-width: 0;
+}
+
+.verify-field dt {
+    color: #666;
+    font-size: 13px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.verify-field dd {
+    min-width: 0;
+    margin: 0;
+    font-size: 13px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.verify-field code {
+    word-break: break-all;
+    overflow-wrap: anywhere;
+}
+
+.verify-warn dt,
+.verify-warn dd {
+    color: var(--verify-danger-text);
     font-weight: 600;
 }
 
-.verify-decode {
-    background: #f5f5f5;
+.verify-check + .verify-check {
+    margin-top: 28px;
+    padding-top: 8px;
+    border-top: 2px solid #ddd;
+}
+
+.verify-action {
+    margin: 8px 0;
+    padding: 14px;
+    border: 1px solid #ddd;
     border-radius: 12px;
-    padding: 12px;
-    font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-all;
+    background: #fafafa;
+    min-width: 0;
     overflow-wrap: anywhere;
-    overflow-x: auto;
+}
+
+.verify-action h4 {
+    margin: 0 0 10px;
+    font-size: 16px;
+    line-height: 1.35;
+}
+
+.verify-action h5 {
+    margin: 14px 0 6px;
+    font-size: 13px;
+}
+
+.verify-action-delegate {
+    border: 2px solid var(--verify-danger-accent);
+}
+
+.verify-action-number {
+    margin: 0 0 4px;
+    color: #666;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.verify-operation-warn,
+.verify-intent-warning {
+    color: var(--verify-danger-text);
+}
+
+.verify-intent-warning {
+    padding: 12px;
+    border: 2px solid var(--verify-danger-accent);
+    border-radius: 8px;
+    background: #fff4f5;
+    font-size: 14px;
+}
+
+.verify-target-label,
+.verify-hash-source {
+    display: block;
+    margin-bottom: 3px;
+    overflow-wrap: anywhere;
+}
+
+.verify-type {
+    display: block;
+    margin-bottom: 3px;
+    color: #666;
+    font-family: monospace;
+    font-size: 11px;
+}
+
+.verify-values {
+    margin: 4px 0;
+    padding-left: 22px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.verify-values > li + li {
+    margin-top: 6px;
+}
+
+.verify-fields-nested {
+    padding-left: 8px;
+    border-left: 2px solid #ddd;
+}
+
+.verify-subactions {
+    margin-top: 14px;
+}
+
+.verify-raw {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.verify-raw summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.verify-raw-fields {
+    margin-top: 8px;
 }
 
 .verify-note {
     font-size: 12px;
     color: #666;
+    overflow-wrap: anywhere;
+}
+
+.verify-ceremony {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    background: #fafafa;
+    text-align: left;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.verify-ceremony h3 {
+    margin-top: 0;
+}
+
+.verify-ceremony ol {
+    margin: 0;
+    padding-left: 22px;
+}
+
+.verify-ceremony li + li {
+    margin-top: 8px;
+}
+
+@media (max-width: 600px) {
+    .verify-lookup-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* A version indicator, not an integrity check: serve-time injection never touches the artifact
