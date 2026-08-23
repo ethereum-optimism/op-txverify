@@ -158,3 +158,27 @@ func TestFormatOutputs_ShowNativeTransferForEmptyCalldata(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatTerminal_ShowsExactValueForKnownSubcall(t *testing.T) {
+	color.NoColor = true
+	result := &core.VerificationResult{
+		Transaction: core.SafeTransaction{
+			Safe: "0x847B5c174615B1B7fDF770882256e2D3E95b9D92", Chain: 1,
+			To: "0x4200000000000000000000000000000000000016", Value: big.NewInt(0), Data: "0x",
+		},
+		Call: core.CallData{
+			Target: "0x4200000000000000000000000000000000000016", FunctionName: "multiSend",
+			SubCalls: []core.CallData{{
+				Target: "0x1111111111111111111111111111111111111111", FunctionName: "approveHash", Value: big.NewInt(7),
+			}},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := FormatTerminal(result, &buf); err != nil {
+		t.Fatalf("FormatTerminal: %v", err)
+	}
+	if !strings.Contains(buf.String(), "ETH Value (wei): 7") {
+		t.Fatalf("terminal output omits the exact nonzero subcall value: %s", buf.String())
+	}
+}

@@ -28,6 +28,7 @@ func testTransaction() SafeTransaction {
 // subcall is one call inside the multicalls superchain-ops wraps approvals in.
 type subcall struct {
 	target common.Address
+	value  *big.Int
 	data   []byte
 }
 
@@ -76,7 +77,11 @@ func aggregate3ValueData(t *testing.T, calls []subcall) string {
 	}
 	packed := make([]call3Value, len(calls))
 	for i, call := range calls {
-		packed[i] = call3Value{Target: call.target, Value: big.NewInt(0), CallData: call.data}
+		value := call.value
+		if value == nil {
+			value = big.NewInt(0)
+		}
+		packed[i] = call3Value{Target: call.target, Value: value, CallData: call.data}
 	}
 	return packCall(t, "aggregate3Value", packed)
 }
@@ -91,13 +96,22 @@ func multiSendDataWithOperation(t *testing.T, operation byte, calls []subcall) s
 	t.Helper()
 	var packed []byte
 	for _, call := range calls {
+		value := call.value
+		if value == nil {
+			value = big.NewInt(0)
+		}
 		packed = append(packed, operation)
 		packed = append(packed, call.target.Bytes()...)
-		packed = append(packed, common.BigToHash(big.NewInt(0)).Bytes()...)
+		packed = append(packed, common.BigToHash(value).Bytes()...)
 		packed = append(packed, common.BigToHash(big.NewInt(int64(len(call.data)))).Bytes()...)
 		packed = append(packed, call.data...)
 	}
-	return packCall(t, "multiSend", packed)
+	return multiSendPayload(t, packed)
+}
+
+func multiSendPayload(t *testing.T, payload []byte) string {
+	t.Helper()
+	return packCall(t, "multiSend", payload)
 }
 
 func TestParseTransactionDataRejectsInvalidMultiSendOperation(t *testing.T) {
@@ -109,6 +123,52 @@ func TestParseTransactionDataRejectsInvalidMultiSendOperation(t *testing.T) {
 	_, err := ParseTransactionData(SafeMultisendAddress, data, MainnetChainID, VerifyOptions{})
 	if err == nil || !strings.Contains(err.Error(), "multiSend operation 2") {
 		t.Fatalf("ParseTransactionData error = %v, want invalid multiSend operation 2", err)
+	}
+}
+
+func TestParseTransactionDataRejectsTruncatedMultiSendRecords(t *testing.T) {
+	target := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	truncatedBody := append([]byte{0}, target.Bytes()...)
+	truncatedBody = append(truncatedBody, common.BigToHash(big.NewInt(0)).Bytes()...)
+	truncatedBody = append(truncatedBody, common.BigToHash(big.NewInt(1)).Bytes()...)
+
+	for _, tc := range []struct {
+		name    string
+		payload []byte
+		want    string
+	}{
+		{"incomplete header", make([]byte, 84), "truncated multiSend header"},
+		{"declared body overrun", truncatedBody, "truncated multiSend body"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseTransactionData(SafeMultisendAddress, multiSendPayload(t, tc.payload), MainnetChainID, VerifyOptions{})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ParseTransactionData error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseTransactionDataRejectsMalformedMultiSendInsideAggregate3(t *testing.T) {
+	malformedMultiSend := multiSendPayload(t, make([]byte, 84))
+	child := subcall{
+		target: common.HexToAddress(SafeMultisendAddress),
+		data:   common.FromHex(malformedMultiSend),
+	}
+
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{"aggregate3", aggregate3Data(t, []subcall{child})},
+		{"aggregate3Value", aggregate3ValueData(t, []subcall{child})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseTransactionData(Multicall3Address, tc.data, MainnetChainID, VerifyOptions{})
+			if err == nil || !strings.Contains(err.Error(), "truncated multiSend header") {
+				t.Fatalf("ParseTransactionData error = %v, want nested multiSend rejection", err)
+			}
+		})
 	}
 }
 
@@ -187,6 +247,78 @@ func TestVerifyTransaction_NormalizesEmptyCalldataForNestedChild(t *testing.T) {
 	}
 	if childCall.Target != child.To || childCall.RawData != "0x" {
 		t.Fatalf("child call = %+v, want target %s and raw calldata 0x", childCall, child.To)
+	}
+}
+
+func TestVerifyTransaction_NormalizesValueBearingEmptyCalldataSubcalls(t *testing.T) {
+	recipient := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	calls := []subcall{
+		{target: recipient, value: big.NewInt(1)},
+		{target: recipient, value: big.NewInt(0)},
+	}
+
+	for _, tc := range []struct {
+		name   string
+		target string
+		data   string
+	}{
+		{"multiSend", SafeMultisendAddress, multiSendData(t, calls)},
+		{"aggregate3Value", Multicall3Address, aggregate3ValueData(t, calls)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := testTransaction()
+			tx.To = tc.target
+			tx.Data = tc.data
+			wantHash, err := CalculateApproveHash(tx)
+			if err != nil {
+				t.Fatalf("CalculateApproveHash: %v", err)
+			}
+
+			result, err := VerifyTransaction(tx, VerifyOptions{})
+			if err != nil {
+				t.Fatalf("VerifyTransaction: %v", err)
+			}
+			if result.ApproveHash != wantHash {
+				t.Fatalf("ApproveHash = %s, want %s", result.ApproveHash, wantHash)
+			}
+			if len(result.Call.SubCalls) != 2 {
+				t.Fatalf("len(SubCalls) = %d, want 2", len(result.Call.SubCalls))
+			}
+			for i, want := range []string{"Send native ETH", "No calldata"} {
+				call := result.Call.SubCalls[i]
+				if call.FunctionName != want || call.Target != recipient.Hex() || call.RawData != "0x" {
+					t.Fatalf("SubCalls[%d] = %+v, want %s to %s with raw calldata 0x", i, call, want, recipient.Hex())
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyTransaction_PreservesNonzeroValueOnKnownSubcalls(t *testing.T) {
+	recipient := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	knownCall := approveHashData("0x" + strings.Repeat("1", 64))
+
+	for _, tc := range []struct {
+		name   string
+		target string
+		data   string
+	}{
+		{"multiSend", SafeMultisendAddress, multiSendData(t, []subcall{{target: recipient, value: big.NewInt(7), data: knownCall}})},
+		{"aggregate3Value", Multicall3Address, aggregate3ValueData(t, []subcall{{target: recipient, value: big.NewInt(7), data: knownCall}})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := testTransaction()
+			tx.To = tc.target
+			tx.Data = tc.data
+			result, err := VerifyTransaction(tx, VerifyOptions{})
+			if err != nil {
+				t.Fatalf("VerifyTransaction: %v", err)
+			}
+			child := result.Call.SubCalls[0]
+			if child.FunctionName != "approveHash" || child.Value == nil || child.Value.Cmp(big.NewInt(7)) != 0 {
+				t.Fatalf("child = %+v, want approveHash carrying 7 wei", child)
+			}
+		})
 	}
 }
 

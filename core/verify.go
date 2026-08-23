@@ -256,13 +256,7 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse transaction data: %w", err)
 	}
-	if strings.TrimPrefix(tx.Data, "0x") == "" {
-		if tx.Value.Sign() > 0 {
-			call.FunctionName = "Send native ETH"
-		} else {
-			call.FunctionName = "No calldata"
-		}
-	}
+	normalizeCallValues(call, tx.Value)
 	tx.Call = *call
 
 	// Calculate the domain and message hashes
@@ -299,6 +293,27 @@ func verifyTransactionInternal(tx SafeTransaction, options VerifyOptions) (*Veri
 	}
 
 	return result, nil
+}
+
+// normalizeCallValues attaches the value that travels with each call and gives empty calldata a
+// value-aware name. ParseTransactionData intentionally stays value-agnostic because its public API
+// receives only target and calldata.
+func normalizeCallValues(call *CallData, value *big.Int) {
+	call.Value = value
+	calldata := call.Calldata
+	if calldata == "" {
+		calldata = call.RawData
+	}
+	if strings.TrimPrefix(calldata, "0x") == "" {
+		if value != nil && value.Sign() > 0 {
+			call.FunctionName = "Send native ETH"
+		} else {
+			call.FunctionName = "No calldata"
+		}
+	}
+	for i := range call.SubCalls {
+		normalizeCallValues(&call.SubCalls[i], call.SubCalls[i].Value)
+	}
 }
 
 // validate rejects values the EIP-712 hash would otherwise silently coerce: HexToAddress

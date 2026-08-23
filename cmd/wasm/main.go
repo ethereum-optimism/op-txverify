@@ -131,6 +131,9 @@ func structuredCall(call core.CallData, value *big.Int, operation int) (map[stri
 	if call.TargetName != "" {
 		view["targetLabel"] = call.TargetName
 	}
+	if value != nil && value.Sign() > 0 {
+		view["value"] = value.String()
+	}
 
 	calldata := call.Calldata
 	if calldata == "" {

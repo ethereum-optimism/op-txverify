@@ -496,6 +496,9 @@ for (const [name, call, visible] of [
   }, ['Send native ETH', 'recipient', INNER_SAFE, 'value', '9007199254740993']],
   ['no calldata', { target: INNER_SAFE, functionName: 'No calldata', operation: 'CALL', arguments: [] },
     ['No calldata', INNER_SAFE, 'CALL']],
+  ['known payable call', {
+    ...rendererCheck().call, value: '9007199254740993',
+  }, ['withdraw', 'Native ETH value (wei)', '9007199254740993']],
 ]) {
   checkContains(`${name} has a clear signer-visible presentation`,
     render(rendererCheck({ call })), visible);
@@ -795,6 +798,8 @@ for (const [name, malformedCall] of [
   })()],
   ['known call with null arguments', { ...rendererCheck().call, arguments: null }],
   ['known call with non-array arguments', { ...rendererCheck().call, arguments: {} }],
+  ['known call with an exponent value', { ...rendererCheck().call, value: '1e18' }],
+  ['known call with a numeric value', { ...rendererCheck().call, value: 1 }],
   ['native transfer with missing arguments', {
     target: INNER_SAFE, functionName: 'Send native ETH', operation: 'CALL',
   }],

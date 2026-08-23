@@ -302,13 +302,15 @@ function normalizeCall(call) {
         : 'Unknown function';
     const operationValid = source.operation === 'CALL' || source.operation === 'DELEGATECALL';
     const targetValid = nonemptyString(source.target);
+    const valueValid = source.value === undefined ||
+        (typeof source.value === 'string' && /^(0|[1-9][0-9]*)$/.test(source.value));
     const argumentsValid = Array.isArray(source.arguments) && source.arguments.every(isArgument);
     const callsValid = source.calls === undefined || Array.isArray(source.calls);
     const signatureRequired = !['Unknown function', 'Send native ETH', 'No calldata']
         .includes(functionName);
     const signatureValid = !signatureRequired || nonemptyString(source.signature);
     const malformed = !validObject || functionName === 'Unknown function' || !operationValid ||
-        !targetValid || !argumentsValid || !callsValid || !signatureValid;
+        !targetValid || !valueValid || !argumentsValid || !callsValid || !signatureValid;
     const rawCalldata = nonemptyString(source.rawCalldata)
         ? source.rawCalldata
         : '(missing calldata)';
@@ -324,6 +326,7 @@ function normalizeCall(call) {
         calls: callsValid && Array.isArray(source.calls) ? source.calls.map(normalizeCall) : [],
     };
     if (nonemptyString(source.targetLabel)) normalized.targetLabel = source.targetLabel;
+    if (!malformed && source.value !== undefined) normalized.value = source.value;
     if (!malformed && nonemptyString(source.signature)) normalized.signature = source.signature;
     if (normalized.functionName === 'Unknown function') {
         normalized.selector = selector;
@@ -400,6 +403,9 @@ function renderCall(call, path = [], normalized = false) {
             ? `<strong class="verify-operation-warn">${esc(operation)}</strong>`
             : `<code>${esc(operation)}</code>`
     );
+    if (call.value !== undefined && functionName !== 'Send native ETH') {
+        html += definitionRow('Native ETH value (wei)', `<code>${esc(call.value)}</code>`);
+    }
     if (functionName === 'Unknown function') {
         html += definitionRow('Selector', `<code>${esc(call.selector)}</code>`);
         html += definitionRow('Raw calldata', `<code>${esc(call.rawCalldata)}</code>`);

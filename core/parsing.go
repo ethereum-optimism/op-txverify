@@ -320,7 +320,7 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 			for pos < len(data) {
 				// Ensure we have enough data for the fixed-size fields
 				if pos+85 > len(data) {
-					break
+					return nil, fmt.Errorf("truncated multiSend header at byte %d", pos)
 				}
 
 				// Extract operation.
@@ -341,17 +341,19 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 				dataLength := common.BytesToHash(data[pos : pos+32])
 				pos += 32
 
-				// Convert data length to int
-				length := new(big.Int).SetBytes(dataLength[:]).Uint64()
-
-				// Ensure we have enough data for the variable-size field
-				if pos+int(length) > len(data) {
-					break
+				length := new(big.Int).SetBytes(dataLength[:])
+				remaining := len(data) - pos
+				if length.Cmp(big.NewInt(int64(remaining))) > 0 {
+					return nil, fmt.Errorf(
+						"truncated multiSend body at byte %d: declares %s bytes, only %d remain",
+						pos, length, remaining,
+					)
 				}
 
 				// Extract call data
-				callData := data[pos : pos+int(length)]
-				pos += int(length)
+				callLength := int(length.Int64())
+				callData := data[pos : pos+callLength]
+				pos += callLength
 
 				// Parse the subcall
 				subcall, err := ParseTransactionData(to.Hex(), "0x"+hex.EncodeToString(callData), chainID, options)
@@ -429,7 +431,7 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 			for _, call := range calls {
 				subcall, err := ParseTransactionData(call.Target.Hex(), "0x"+hex.EncodeToString(call.CallData), chainID, options)
 				if err != nil {
-					continue
+					return nil, fmt.Errorf("invalid aggregate3 subcall to %s: %w", call.Target.Hex(), err)
 				}
 
 				// If the multicall is via the delegatecall helper, mark subcalls as delegate
@@ -511,7 +513,7 @@ func parseMulticall(contractAddress string, chainID uint64, functionInfo Functio
 			for _, call := range calls {
 				subcall, err := ParseTransactionData(call.Target.Hex(), "0x"+hex.EncodeToString(call.CallData), chainID, options)
 				if err != nil {
-					continue
+					return nil, fmt.Errorf("invalid aggregate3Value subcall to %s: %w", call.Target.Hex(), err)
 				}
 
 				subcall.Value = call.Value

@@ -135,6 +135,17 @@ func TestContractChecksDescribeEmptyCalldata(t *testing.T) {
 	}
 }
 
+func TestStructuredCallIncludesExactValueForKnownFunction(t *testing.T) {
+	call := parsedCall(t, "setOwner(address)", testRecipient, common.HexToAddress(testSafe))
+	view, err := structuredCall(*call, mustBigInt(t, testLargeInt), 0)
+	if err != nil {
+		t.Fatalf("structuredCall: %v", err)
+	}
+	assertFields(t, view, map[string]any{
+		"functionName": "setOwner", "value": testLargeInt,
+	})
+}
+
 func TestContractChecksDescribeUnknownCall(t *testing.T) {
 	raw := "0xdeadbeef00000001"
 	tx := core.SafeTransaction{
