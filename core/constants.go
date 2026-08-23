@@ -256,7 +256,7 @@ var legacyABIRecords = []KnownABIRecord{
 	{Signature: "migrateWithFallbackHandler()", ParameterNames: []string{}, Source: "existing local signature database", ABIJSON: `[{"inputs":[],"name":"migrateWithFallbackHandler","outputs":[],"stateMutability":"nonpayable","type":"function"}]`},
 }
 
-const safeHistoryReviewSource = "Safe history review: .superpowers/sdd/op-txverify-followup-plan/task-1-brief.md"
+const safeHistoryReviewSource = "Safe history fixture: core/testdata/history_calls.json"
 
 // historyABIRecords contains the reviewed additions from the Safe history.
 // Scope is provenance only: selector decoding intentionally remains global,

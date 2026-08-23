@@ -74,6 +74,17 @@ func TestHistoryFixturesDecodeLiteralCalldata(t *testing.T) {
 	}
 }
 
+func TestHistoryRecordProvenanceIsCommitted(t *testing.T) {
+	for _, record := range historyABIRecords {
+		if record.Signature == "withdraw(uint256,uint256,address)" {
+			continue
+		}
+		if record.Source != "Safe history fixture: core/testdata/history_calls.json" {
+			t.Fatalf("%s source = %q, want committed history fixture", record.Signature, record.Source)
+		}
+	}
+}
+
 func compactJSON(raw json.RawMessage) string {
 	var value interface{}
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
