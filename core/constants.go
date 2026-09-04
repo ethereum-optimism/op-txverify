@@ -42,12 +42,14 @@ const (
 	OPCMv500Mainnet          = "0xFa1Ef97fb02B0dA2Ee2346b8e310907ab5519449"
 	OPCMv600Mainnet          = "0x50F47B43c24F40B92C873Fa0704D4207586D0C9f"
 	OPCMv700Mainnet          = "0x9Ce712Ff84E02659846dc6450BB9b7642fE8bE5D"
+	OPCMv800Mainnet          = "0x1951828Ce913DC4383a8A1695695D537a11D896a"
 	OPCMv220Sepolia          = "0x6b6f9129efb1b7a48f84e3b787333d1dca02ee34"
 	OPCMv300Sepolia          = "0xfBceeD4DE885645fBdED164910E10F52fEBFAB35"
 	OPCMv410Sepolia          = "0x3bb6437aba031afbf9cb3538fa064161e2bf2d78"
 	OPCMv500Sepolia          = "0xC69e4c24Db479191676611a25D977203c3BDca62"
 	OPCMv600Sepolia          = "0xF0a2e224519E876979eA6B2cd15eF5CC3d6703bd"
 	OPCMv700Sepolia          = "0x44e197058fb98Fb3618453b3D90CDEf6f5Db8297"
+	OPCMv800Sepolia          = "0x6AbfAbBC793883adD5fa308A97163E8225a9f4Ca"
 	CCTPv2                   = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
 	OPL1StandardBridge       = "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1"
 	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
@@ -115,6 +117,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv500Mainnet):          {Name: "OPContractsManager V5.0.0", Decimals: 0},
 		strings.ToLower(OPCMv600Mainnet):          {Name: "OPContractsManager V6.0.0", Decimals: 0},
 		strings.ToLower(OPCMv700Mainnet):          {Name: "OPContractsManager V7.0.0", Decimals: 0},
+		strings.ToLower(OPCMv800Mainnet):          {Name: "OPContractsManager V8.0.0", Decimals: 0},
 		strings.ToLower(CCTPv2):                   {Name: "CCTP V2", Decimals: 0},
 		strings.ToLower(OPL1StandardBridge):       {Name: "OP L1StandardBridge", Decimals: 0},
 		strings.ToLower(SaferSafes):               {Name: "SaferSafes", Decimals: 0},
@@ -154,6 +157,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv500Sepolia):        {Name: "OPContractsManager V5.0.0", Decimals: 0},
 		strings.ToLower(OPCMv600Sepolia):        {Name: "OPContractsManager V6.0.0", Decimals: 0},
 		strings.ToLower(OPCMv700Sepolia):        {Name: "OPContractsManager V7.0.0", Decimals: 0},
+		strings.ToLower(OPCMv800Sepolia):        {Name: "OPContractsManager V8.0.0", Decimals: 0},
 		strings.ToLower(SaferSafes):             {Name: "SaferSafes", Decimals: 0},
 	},
 	OPSepoliaChainID: {
@@ -220,6 +224,7 @@ var KnownABIJSON = []string{
 	`[{"inputs":[{"name":"_inp","type":"tuple","components":[{"name":"systemConfig","type":"address"},{"name":"disputeGameConfigs","type":"tuple[]","components":[{"name":"enabled","type":"bool"},{"name":"initBond","type":"uint256"},{"name":"gameType","type":"uint32"},{"name":"gameArgs","type":"bytes"}]},{"name":"extraInstructions","type":"tuple[]","components":[{"name":"key","type":"string"},{"name":"data","type":"bytes"}]}]}],"name":"upgrade","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                                                                                                                                                    // OPCM V2 upgrade
 	`[{"inputs":[{"name":"_inp","type":"tuple","components":[{"name":"superchainConfig","type":"address"},{"name":"extraInstructions","type":"tuple[]","components":[{"name":"key","type":"string"},{"name":"data","type":"bytes"}]}]}],"name":"upgradeSuperchain","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                                                                                                                                                                                                                                                                                                                                                 // OPCM V2 upgradeSuperchain
 	`[{"inputs":[{"name":"_input","type":"tuple","components":[{"name":"chainSystemConfigs","type":"address[]"},{"name":"disputeGameConfigs","type":"tuple[]","components":[{"name":"enabled","type":"bool"},{"name":"initBond","type":"uint256"},{"name":"gameType","type":"uint32"},{"name":"gameArgs","type":"bytes"}]},{"name":"startingAnchorRoot","type":"tuple","components":[{"name":"root","type":"bytes32"},{"name":"l2SequenceNumber","type":"uint256"}]},{"name":"startingRespectedGameType","type":"uint32"}]}],"name":"migrate","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                                                                      // OPCM V2 migrate
+	`[{"inputs":[{"name":"_input","type":"tuple","components":[{"name":"chainSystemConfigs","type":"address[]"},{"name":"disputeGameConfigs","type":"tuple[]","components":[{"name":"enabled","type":"bool"},{"name":"initBond","type":"uint256"},{"name":"gameType","type":"uint32"},{"name":"gameArgs","type":"bytes"}]},{"name":"startingAnchorRoot","type":"tuple","components":[{"name":"root","type":"bytes32"},{"name":"l2SequenceNumber","type":"uint256"}]},{"name":"startingRespectedGameType","type":"uint32"}]}],"name":"setInteropDisputeGames","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                                                       // OPCM V2 setInteropDisputeGames
 	`[{"inputs":[{"name":"_opChainConfigs","type":"tuple[]","components":[{"name":"systemConfigProxy","type":"address"},{"name":"cannonPrestate","type":"bytes32"},{"name":"cannonKonaPrestate","type":"bytes32"}]}],"name":"upgrade","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                                                                                                                                                                                                                                                                                                                                                                              // OPCM V6 upgrade
 	`[{"inputs":[{"name":"_prestateUpdateInputs","type":"tuple[]","components":[{"name":"systemConfigProxy","type":"address"},{"name":"cannonPrestate","type":"bytes32"},{"name":"cannonKonaPrestate","type":"bytes32"}]}],"name":"updatePrestate","outputs":[],"stateMutability":"nonpayable","type":"function"}]`,                                                                                                                                                                                                                                                                                                                                                                                 // OPCM V6 updatePrestate
 	`[{"inputs":[{"name":"_gameConfigs","type":"tuple[]","components":[{"name":"saltMixer","type":"string"},{"name":"systemConfig","type":"address"},{"name":"delayedWETH","type":"address"},{"name":"disputeGameType","type":"uint32"},{"name":"disputeAbsolutePrestate","type":"bytes32"},{"name":"disputeMaxGameDepth","type":"uint256"},{"name":"disputeSplitDepth","type":"uint256"},{"name":"disputeClockExtension","type":"uint64"},{"name":"disputeMaxClockDuration","type":"uint64"},{"name":"initialBond","type":"uint256"},{"name":"vm","type":"address"},{"name":"permissioned","type":"bool"}]}],"name":"addGameType","outputs":[],"stateMutability":"nonpayable","type":"function"}]`, // OPCM V6 addGameType
