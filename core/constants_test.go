@@ -47,3 +47,21 @@ func TestSetInteropDisputeGamesSelector(t *testing.T) {
 		t.Fatalf("got %q, want %q", info.Signature, want)
 	}
 }
+
+func TestOPCMv900Known(t *testing.T) {
+	for _, tc := range []struct {
+		addr    string
+		chainID uint64
+	}{
+		{OPCMv900Mainnet, MainnetChainID},
+		{OPCMv900Sepolia, SepoliaChainID},
+	} {
+		info, ok := GetKnownContract(tc.addr, tc.chainID)
+		if !ok {
+			t.Fatalf("expected %s to be known on chain %d", tc.addr, tc.chainID)
+		}
+		if info.Name != "OPContractsManager V9.0.0" {
+			t.Fatalf("unexpected name: %q", info.Name)
+		}
+	}
+}
