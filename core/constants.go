@@ -44,6 +44,7 @@ const (
 	OPCMv700Mainnet          = "0x9Ce712Ff84E02659846dc6450BB9b7642fE8bE5D"
 	OPCMv800Mainnet          = "0x1951828Ce913DC4383a8A1695695D537a11D896a"
 	OPCMv900Mainnet          = "0x2d91e6F2bcF6CD1df90E1FAF9714E18705EA331f"
+	OPCMv900AllowlistMainnet = "0x12F00d96414Fe43CC3a19acc1254D7Bd83d5BEd0"
 	OPCMv220Sepolia          = "0x6b6f9129efb1b7a48f84e3b787333d1dca02ee34"
 	OPCMv300Sepolia          = "0xfBceeD4DE885645fBdED164910E10F52fEBFAB35"
 	OPCMv410Sepolia          = "0x3bb6437aba031afbf9cb3538fa064161e2bf2d78"
@@ -52,6 +53,7 @@ const (
 	OPCMv700Sepolia          = "0x44e197058fb98Fb3618453b3D90CDEf6f5Db8297"
 	OPCMv800Sepolia          = "0x6AbfAbBC793883adD5fa308A97163E8225a9f4Ca"
 	OPCMv900Sepolia          = "0x160f0FE4dC1B3f4026687e8dD4b7F800879939Cc"
+	OPCMv900AllowlistSepolia = "0xB72366fb8f855779F01800aEd1eBFae886F37ace"
 	CCTPv2                   = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
 	OPL1StandardBridge       = "0x99C9fc46f92E8a1c0deC1b1747d010903E884bE1"
 	OPL2StandardBridge       = "0x4200000000000000000000000000000000000010"
@@ -122,6 +124,7 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPCMv700Mainnet):          {Name: "OPContractsManager V7.0.0", Decimals: 0},
 		strings.ToLower(OPCMv800Mainnet):          {Name: "OPContractsManager V8.0.0", Decimals: 0},
 		strings.ToLower(OPCMv900Mainnet):          {Name: "OPContractsManager V9.0.0", Decimals: 0},
+		strings.ToLower(OPCMv900AllowlistMainnet): {Name: "OPContractsManager V9.0.0+allowlist", Decimals: 0},
 		strings.ToLower(CCTPv2):                   {Name: "CCTP V2", Decimals: 0},
 		strings.ToLower(OPL1StandardBridge):       {Name: "OP L1StandardBridge", Decimals: 0},
 		strings.ToLower(SaferSafes):               {Name: "SaferSafes", Decimals: 0},
@@ -152,18 +155,19 @@ var KnownContracts = map[uint64]map[string]ContractInfo{
 		strings.ToLower(OPL2StandardBridge):       {Name: "Base L2StandardBridge", Decimals: 0},
 	},
 	SepoliaChainID: {
-		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
-		strings.ToLower(Multicall3Address):      {Name: "MULTICALL3", Decimals: 0},
-		strings.ToLower(Multicall3Delegatecall): {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
-		strings.ToLower(OPCMv220Sepolia):        {Name: "OPContractsManager V2.2.0", Decimals: 0},
-		strings.ToLower(OPCMv300Sepolia):        {Name: "OPContractsManager V3.0.0", Decimals: 0},
-		strings.ToLower(OPCMv410Sepolia):        {Name: "OPContractsManager V4.1.0", Decimals: 0},
-		strings.ToLower(OPCMv500Sepolia):        {Name: "OPContractsManager V5.0.0", Decimals: 0},
-		strings.ToLower(OPCMv600Sepolia):        {Name: "OPContractsManager V6.0.0", Decimals: 0},
-		strings.ToLower(OPCMv700Sepolia):        {Name: "OPContractsManager V7.0.0", Decimals: 0},
-		strings.ToLower(OPCMv800Sepolia):        {Name: "OPContractsManager V8.0.0", Decimals: 0},
-		strings.ToLower(OPCMv900Sepolia):        {Name: "OPContractsManager V9.0.0", Decimals: 0},
-		strings.ToLower(SaferSafes):             {Name: "SaferSafes", Decimals: 0},
+		strings.ToLower(SafeMultisendAddress):     {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
+		strings.ToLower(Multicall3Address):        {Name: "MULTICALL3", Decimals: 0},
+		strings.ToLower(Multicall3Delegatecall):   {Name: "MULTICALL3 DELEGATECALL", Decimals: 0},
+		strings.ToLower(OPCMv220Sepolia):          {Name: "OPContractsManager V2.2.0", Decimals: 0},
+		strings.ToLower(OPCMv300Sepolia):          {Name: "OPContractsManager V3.0.0", Decimals: 0},
+		strings.ToLower(OPCMv410Sepolia):          {Name: "OPContractsManager V4.1.0", Decimals: 0},
+		strings.ToLower(OPCMv500Sepolia):          {Name: "OPContractsManager V5.0.0", Decimals: 0},
+		strings.ToLower(OPCMv600Sepolia):          {Name: "OPContractsManager V6.0.0", Decimals: 0},
+		strings.ToLower(OPCMv700Sepolia):          {Name: "OPContractsManager V7.0.0", Decimals: 0},
+		strings.ToLower(OPCMv800Sepolia):          {Name: "OPContractsManager V8.0.0", Decimals: 0},
+		strings.ToLower(OPCMv900Sepolia):          {Name: "OPContractsManager V9.0.0", Decimals: 0},
+		strings.ToLower(OPCMv900AllowlistSepolia): {Name: "OPContractsManager V9.0.0+allowlist", Decimals: 0},
+		strings.ToLower(SaferSafes):               {Name: "SaferSafes", Decimals: 0},
 	},
 	OPSepoliaChainID: {
 		strings.ToLower(SafeMultisendAddress):   {Name: "GNOSIS SAFE MULTISEND", Decimals: 0},
