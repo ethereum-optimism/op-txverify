@@ -52,16 +52,19 @@ func TestOPCMv900Known(t *testing.T) {
 	for _, tc := range []struct {
 		addr    string
 		chainID uint64
+		name    string
 	}{
-		{OPCMv900Mainnet, MainnetChainID},
-		{OPCMv900Sepolia, SepoliaChainID},
+		{OPCMv900Mainnet, MainnetChainID, "OPContractsManager V9.0.0"},
+		{OPCMv900Sepolia, SepoliaChainID, "OPContractsManager V9.0.0"},
+		{OPCMv900AllowlistMainnet, MainnetChainID, "OPContractsManager V9.0.0+allowlist"},
+		{OPCMv900AllowlistSepolia, SepoliaChainID, "OPContractsManager V9.0.0+allowlist"},
 	} {
 		info, ok := GetKnownContract(tc.addr, tc.chainID)
 		if !ok {
 			t.Fatalf("expected %s to be known on chain %d", tc.addr, tc.chainID)
 		}
-		if info.Name != "OPContractsManager V9.0.0" {
-			t.Fatalf("unexpected name: %q", info.Name)
+		if info.Name != tc.name {
+			t.Fatalf("got %q, want %q", info.Name, tc.name)
 		}
 	}
 }
