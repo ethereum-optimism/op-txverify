@@ -65,3 +65,21 @@ func TestOPCMv900Known(t *testing.T) {
 		}
 	}
 }
+
+func TestOPCMv1000Known(t *testing.T) {
+	for _, tc := range []struct {
+		addr    string
+		chainID uint64
+	}{
+		{OPCMv1000Mainnet, MainnetChainID},
+		{OPCMv1000Sepolia, SepoliaChainID},
+	} {
+		info, ok := GetKnownContract(tc.addr, tc.chainID)
+		if !ok {
+			t.Fatalf("expected %s to be known on chain %d", tc.addr, tc.chainID)
+		}
+		if info.Name != "OPContractsManager V10.0.0" {
+			t.Fatalf("unexpected name: %q", info.Name)
+		}
+	}
+}
